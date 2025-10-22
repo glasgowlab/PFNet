@@ -1,0 +1,12 @@
+# cache
+__pycache__/
+
+# data
+01_data/
+
+# notebooks
+100_notbooks
+
+# wandb
+wandb
+PFNet

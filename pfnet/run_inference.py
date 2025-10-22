@@ -171,15 +171,17 @@ def _load_model(loaded_model, centroid_model):
     if loaded_model is not None:
         return loaded_model
 
+    model_dir = os.path.join(os.path.dirname(__file__), "model_weights")
+    
     if centroid_model:
         print("loading PFNetCentroid model")
-        checkpoint_path = f"{os.path.dirname(__file__)}/../model/PFNetCentroid.ckpt"
+        checkpoint_path = os.path.join(model_dir, "PFNetCentroid.ckpt")
         model = PFNetCentroid.load_from_checkpoint(checkpoint_path)
     else:
         print("loading PFNet model")
-        checkpoint_path = f"{os.path.dirname(__file__)}/../model/PFNet.ckpt"
+        checkpoint_path = os.path.join(model_dir, "PFNet.ckpt")
         model = PFNet.load_from_checkpoint(checkpoint_path)
-
+    
     model.eval()
     model.to(device="cpu")
     return model

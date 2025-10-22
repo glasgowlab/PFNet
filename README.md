@@ -2,6 +2,10 @@
 
 PFNet is a machine learning model that determines $\Delta G_{op}$ for arbitrarily large proteins and complexes from conventional peptide-level hydrogen exchange/mass spectrometry (HX/MS) datasets.
 
+## Accessible Web Interface
+
+To make PFNet more accessible and convenient for everyone to use, we have hosted the trained models on [Hugging Face Spaces](https://huggingface.co/spaces/glasgow-lab/PFNet). The web interface provides interactive analysis and visualization capabilities powered by Molstar, allowing you to analyze your HX/MS data and visualize the results directly in your browser without any local installation.
+
 ## Installation
 
 PFNet uses Pixi for dependency management and supports both CPU and GPU environments across multiple platforms.

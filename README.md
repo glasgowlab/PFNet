@@ -234,4 +234,4 @@ note: nans are prolines, residues not covered, or noisy data.
 
 ## acknowledgments
 
-pfnet builds upon the pigeon-feather library for hx/ms data processing and analysis.
+pfnet builds upon the [PIGEON-FEATHER](https://github.com/glasgowlab/PIGEON-FEATHER) library for hx/ms data processing and analysis.

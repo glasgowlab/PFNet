@@ -190,9 +190,17 @@ def _load_model(loaded_model, centroid_model):
 def _load_data(input, centroid_model):
     if isinstance(input, dict):
         dataset = [input]
+        hxms_data = datadict_to_hdxmsdata(dataset[0], protein_name="Expt.", centroid_data=centroid_model)
     elif input.endswith(".hxms"):
         hxms_data = load_HXMS_file(input, n_fastamides=1)
+        hxms_data.protein_name = "Expt."
+        for state in hxms_data.states:
+            state.state_name = "Expt."
         all_peptides = [peptide for state in hxms_data.states for peptide in state.peptides]
+        
+        # back exchange estimation
+        from pigeon_feather.tools import backexchange_correction
+        backexchange_correction([hxms_data])
         
         skip_peptides = []
         for peptide in all_peptides:
@@ -212,13 +220,13 @@ def _load_data(input, centroid_model):
         dataset = HDXDataset(hxms_data_to_grouped_dict(hxms_data), centroid_data=centroid_model)
     elif input.endswith(".pt"):
         dataset = HDXDataset(input, centroid_data=centroid_model)
+        hxms_data = datadict_to_hdxmsdata(dataset[0], protein_name="Expt.", centroid_data=centroid_model)
     else:
         raise ValueError("Invalid input type")
     data_loader = DataLoader(dataset, batch_size=1, shuffle=False, collate_fn=custom_collate_fn)
     batch = next(iter(data_loader))
-    hdxms_data = datadict_to_hdxmsdata(dataset[0], protein_name="Expt.", centroid_data=centroid_model)
 
-    return dataset, batch, hdxms_data
+    return dataset, batch, hxms_data
 
 
 def _create_analysis_obj(pfnet_model, hdxms_data, pred_log_kex_samples, pfnet_confidence, batch):

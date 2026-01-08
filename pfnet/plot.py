@@ -183,7 +183,7 @@ def plot_uptake_curves(hdxms_data_list, protein_name, outdir, time_window=None, 
         os.makedirs(outdir)
 
     def idf_to_pep(idf):
-        return [pep for pep in all_peps if pep.identifier == idf][0]
+        return [pep for pep in all_peps if pep.identifier == idf and pep.protein_state.state_name == "Expt."][0]
 
     # Plot settings
     num_subplots_per_figure = 300
@@ -206,8 +206,10 @@ def plot_uptake_curves(hdxms_data_list, protein_name, outdir, time_window=None, 
 
             pep = idf_to_pep(idf)
             try:
-
-                ax.axhline(y=pep.max_d, color="lightgray", linestyle="--", linewidth=5)
+                if hasattr(pep, "is_max_d_estimated") and pep.is_max_d_estimated:
+                    ax.axhline(y=pep.max_d, color="lightcoral", linestyle=":", linewidth=5)
+                else:
+                    ax.axhline(y=pep.max_d, color="lightgray", linestyle="--", linewidth=5)
 
                 uptake = UptakePlot(
                     hdxms_data_list,

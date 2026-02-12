@@ -12,7 +12,7 @@ import urllib.request
 import traceback
 
 from pigeon_feather.analysis import get_res_avg_logP, get_res_avg_logP_std, get_res_avg_log_kex
-from pigeon_feather.tools import calculate_coverages
+from pigeon_feather.tools import calculate_coverages, group_by_attributes
 from pigeon_feather.data import HDXStatePeptideCompares
 from pigeon_feather.hxio import load_HXMS_file
 
@@ -235,6 +235,111 @@ def get_all_statics_info(hdxms_datas):
     )
     
     return stats_text
+
+
+def estimate_noise_level(hdxms_data_list):
+
+    noise_levels = [0.01, 0.02, 0.03, 0.04, 0.05, 0.1, 0.15, 0.2, 0.3]
+
+    def _pad_to_len_nan(arr, target_len):
+        out = np.full(target_len, np.nan, dtype=float)
+        arr = np.asarray(arr, dtype=float)
+        valid_len = min(len(arr), target_len)
+        out[:valid_len] = arr[:valid_len]
+        return out
+
+    def _collect_grouped_timepoints(hdxms_data_list):
+        if not isinstance(hdxms_data_list, list):
+            hdxms_data_list = [hdxms_data_list]
+        all_peptides = [
+            pep
+            for data in hdxms_data_list
+            for state in data.states
+            for pep in state.peptides
+        ]
+        all_timepoints = [
+            tp for pep in all_peptides for tp in pep.timepoints if tp.deut_time not in (0, np.inf)
+        ]
+        grouped_tps = group_by_attributes(
+            all_timepoints,
+            ["peptide.protein_state.state_name", "peptide.identifier", "deut_time"],
+        )
+        return grouped_tps
+
+    def _evaluate_noise_vs_data(grouped_tps, noise_level, target_len=50):
+        rows = []
+        for group, data in grouped_tps.items():
+            if group[2] == 0 or group[2] == np.inf:
+                continue
+            if len(data) <= 1:
+                continue
+
+            mats = [_pad_to_len_nan(tpi.isotope_envelope, target_len) for tpi in data]
+            M = np.vstack(mats)
+            mu = np.nanmean(M, axis=0)
+            R = M - mu
+
+            nl = float(noise_level)
+            a = nl / 10.0
+            b = nl * np.abs(M)
+            H_var = np.sqrt(a**2 + b**2)
+            H_sup = a + b
+
+            mask = np.isfinite(R) & np.isfinite(H_var) & np.isfinite(H_sup)
+            if not np.any(mask):
+                continue
+
+            r = R[mask]
+            h_var = H_var[mask]
+            h_sup = H_sup[mask]
+
+            picp_var = np.mean(np.abs(r) <= h_var)
+            picp_sup = np.mean(np.abs(r) <= h_sup)
+
+            emp_var = np.var(r, ddof=1) if r.size > 1 else np.nan
+            theo_var = np.mean((h_var**2) / 3.0)
+            variance_ratio = emp_var / theo_var if theo_var > 0 else np.nan
+
+            rows.append(
+                {
+                    "group": group,
+                    "N_points": int(r.size),
+                    "PICP_var": float(picp_var),
+                    "PICP_sup": float(picp_sup),
+                    "Variance_Ratio": float(variance_ratio),
+                    "noise_level": nl,
+                }
+            )
+        return pd.DataFrame(rows)
+
+
+    grouped_tps = _collect_grouped_timepoints(hdxms_data_list)
+
+    details = []
+    summary_rows = []
+    metric_cols = ["PICP_var", "PICP_sup", "Variance_Ratio"]
+
+    for noise_level in noise_levels:
+        df = _evaluate_noise_vs_data(grouped_tps, noise_level=noise_level, target_len=50)
+        details.append(df)
+
+        row = {
+            "noise_level": float(noise_level),
+            "N_groups": int(len(df)),
+            "N_points": int(df["N_points"].sum()) if not df.empty else 0,
+        }
+        for col_name in metric_cols:
+            mean_val = df[col_name].mean() if not df.empty else np.nan
+            std_val = df[col_name].std() if not df.empty else np.nan
+            row[f"{col_name}_mean"] = mean_val
+            row[f"{col_name}_std"] = std_val
+            row[f"{col_name}_mean+/-std"] = f"{mean_val:.3f} +/- {std_val:.3f}"
+        summary_rows.append(row)
+
+    details_df = pd.concat(details, ignore_index=True) if details else pd.DataFrame()
+    summary_df = pd.DataFrame(summary_rows)
+
+    return details_df, summary_df
 
 
 def get_log_kex_plot(ana_objs, output_dir):
@@ -592,7 +697,8 @@ def get_summary(output_dicts, hdxms_data_list, output_dir):
     state_names = [state.state_name for data in hdxms_data_list for state in data.states]
 
     for idx, state_name in enumerate(state_names):
-        results = output_dicts[f"{state_name}_{idx}"]["results"]
+        state_key = f"{state_name}_{idx}"
+        results = output_dicts[state_key]["results"]
         
         stats_text = get_all_statics_info([hdxms_data_list[idx]])
         SUMMARY += stats_text
@@ -628,6 +734,43 @@ def get_summary(output_dicts, hdxms_data_list, output_dir):
         SUMMARY += f"centroid model: {results['centroid_model']}\n"
         
         SUMMARY += "=" * 60 + "\n"*2
+
+    if hdxms_data_list:
+        try:
+            _, noise_summary = estimate_noise_level(hdxms_data_list)
+            valid_noise_summary = noise_summary.dropna(subset=["PICP_var_mean"]).sort_values("noise_level")
+            candidates = valid_noise_summary[valid_noise_summary["PICP_var_mean"] >= 0.95]
+            best_noise_level = candidates["noise_level"].iloc[0] if not candidates.empty else np.nan
+
+            display_cols = [
+                "noise_level",
+                "PICP_var_mean+/-std",
+                "PICP_sup_mean+/-std",
+                "N_groups",
+            ]
+            SUMMARY += "=" * 60 + "\n"
+            SUMMARY += " " * 18 + "Noise Level Estimation\n"
+            SUMMARY += "=" * 60 + "\n"
+            display_df = noise_summary[display_cols].copy()
+            display_df["noise_level"] = display_df["noise_level"].map(lambda x: f"{x:.2f}")
+            col_widths = {
+                col: max(len(col), display_df[col].astype(str).map(len).max())
+                for col in display_cols
+            }
+            header = "  ".join(f"{col:<{col_widths[col]}}" for col in display_cols)
+            rows = [
+                "  ".join(f"{str(row[col]):<{col_widths[col]}}" for col in display_cols)
+                for _, row in display_df.iterrows()
+            ]
+            SUMMARY += header + "\n" + "\n".join(rows) + "\n\n"
+            SUMMARY += f"Estimated noise_level: {best_noise_level:.3f}\n"
+            SUMMARY += "\n" + "=" * 60 + "\n"*2
+        except Exception as e:
+            SUMMARY += "=" * 60 + "\n"
+            SUMMARY += " " * 18 + "Noise Level Estimation\n"
+            SUMMARY += "=" * 60 + "\n"
+            SUMMARY += f"Noise estimation skipped due to error: {e}\n"
+            SUMMARY += "=" * 60 + "\n"*2
         
     summary_path = f"{output_dir}/summary.txt"
     with open(summary_path, 'w') as f:

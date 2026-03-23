@@ -4,22 +4,20 @@ PFNet is a machine learning model that determines $\Delta G_{op}$ for arbitraril
 
 Preprint: https://www.biorxiv.org/content/10.1101/2025.10.21.683809v1
 
-## Accessible Web Interface
+## Accessible web interface
 
 To make PFNet more accessible and convenient for everyone to use, we have hosted the trained models on [Hugging Face Spaces](https://huggingface.co/spaces/glasgow-lab/PFNet). The web interface provides interactive analysis and visualization capabilities powered by Molstar, allowing you to analyze your HX/MS data and visualize the results directly in your browser without any local installation.
 
 ## Installation
 
-PFNet uses Pixi for dependency management and supports both CPU and GPU environments across multiple platforms.
-
-### prerequisites
+PFNet uses [Pixi](https://pixi.prefix.dev/latest/) for dependency management and supports both CPU and GPU environments across multiple platforms.
 
 ```bash
+# prerequisites
 # install pixi
 curl -fsSL https://pixi.sh/install.sh | sh
 ```
 
-### installation options
 ```bash
 # clone the repository
 git clone https://github.com/glasgowlab/PFNet
@@ -32,76 +30,15 @@ pixi install
 pixi install -e cuda
 ```
 
-### platform support
+## Tutorial notebook
 
-- **linux**: cpu and gpu (cuda) support (gpu mainly for training, cpu inference is already fast)
-- **macos intel**: cpu support only
-- **macos apple silicon**: cpu support only
+For a step-by-step walkthrough of PFNet usage, see the tutorial notebook at [notebooks/tutorial.ipynb](notebooks/tutorial.ipynb).
 
-### running pfnet
-
-#### in project directory
-```bash
-# cpu version
-pixi run pfnet --input examples/EEHEEEEHEE_rd4_0871.hxms --generate_all
-
-# gpu version (linux only)
-pixi run -e cuda pfnet --input examples/EEHEEEEHEE_rd4_0871.hxms --generate_all
-```
-
-#### from any directory
-```bash
-# run from anywhere by specifying the manifest path
-pixi run --manifest-path /path/to/PFNet/pyproject.toml pfnet --input examples/EEHEEEEHEE_rd4_0871.hxms --generate_all
-```
-
-## Quick Start
-
-### A typical HX/MS workflow
-
-![HX/MS workflow](.hxms_workflow.svg)
-**Tools:**
-- [PIGEON](https://github.com/glasgowlab/PIGEON-FEATHER) - GitHub
-- [PFLink](https://huggingface.co/spaces/glasgow-lab/PFLink) - Hugging Face
-- [PFNet](https://huggingface.co/spaces/glasgow-lab/PFNet) - Hugging Face
-
-### Input Data Format
-
-PFNet accepts HXMS format as input, which is a unified, lightweight, scalable, and human-readable file format for HX/MS data. The HXMS format preserves the isotopic mass envelopes for all peptides, captures the full experimental time-course including the fully deuterated control samples, and contains all other key information. HXMS files can be generated using [PFLink](https://huggingface.co/spaces/glasgow-lab/PFLink), which supports exports from BioPharma Finder, HDExaminer, DynamX, and HDX Workbench. 
-
-### basic usage
-run pfnet on a single hx/ms data file:
-
-```bash
-pixi run pfnet --input examples/EEHEEEEHEE_rd4_0871.hxms --generate_all
-```
-
-### comparison analysis
-compare two protein states:
-
-```bash
-pixi run pfnet --input examples/ecDHFR_APO.hxms --input2 examples/ecDHFR_MTX.hxms --generate_all
-```
-
-### with structure visualization
-generate bfactor plots for pdb visualization:
-
-```bash
-pixi run pfnet --input examples/ecDHFR_APO.hxms --pdb_id 6XG5 --generate_all
-```
-
-### gpu acceleration (linux only)
-note: gpu is primarily used for training the model. inference is already very fast on cpu, so gpu acceleration provides minimal speedup for typical use cases.
-
-```bash
-pixi run -e cuda pfnet --input examples/EEHEEEEHEE_rd4_0871.hxms --generate_all
-```
-
-## Command Line Interface
+## Command line interface
 
 PFNet provides a comprehensive command-line interface accessible through `pixi run pfnet`:
 
-### input arguments
+### Input arguments
 ```
 --input INPUT                input hdx-ms data file (required)
 --input2 INPUT2              second input file for comparison (optional)
@@ -109,7 +46,7 @@ PFNet provides a comprehensive command-line interface accessible through `pixi r
 --model_type {envelope,centroid}  model type (default: envelope)
 ```
 
-### refinement options
+### Refinement options
 ```
 --refine                     enable bayesian refinement
 --refine_steps STEPS         number of refinement steps (default: 200)
@@ -119,7 +56,7 @@ PFNet provides a comprehensive command-line interface accessible through `pixi r
 --refine_non_single_pos_conf_threshold THRESHOLD  non-single position confidence threshold (default: 0.9)
 ```
 
-### output generation options
+### Output generation options
 ```
 --generate_all              generate all outputs (recommended)
 --generate_summary          generate summary (default: True)
@@ -130,13 +67,56 @@ PFNet provides a comprehensive command-line interface accessible through `pixi r
 --plot                      generate uptake plots
 ```
 
-### structure visualization
+### Structure visualization
 ```
 --pdb_id PDB_ID             pdb id to download for structure visualization
 --pdb_file PDB_FILE         path to pdb file for structure visualization
 ```
 
-## Output Files
+## Quick start
+
+**A typical HX/MS workflow**
+
+![HX/MS workflow](.hxms_workflow.svg)
+**Tools:**
+- [PIGEON](https://github.com/glasgowlab/PIGEON-FEATHER) - GitHub
+- [PFLink](https://huggingface.co/spaces/glasgow-lab/PFLink) - Hugging Face
+- [PFNet](https://huggingface.co/spaces/glasgow-lab/PFNet) - Hugging Face
+
+**Input data format**
+
+PFNet accepts HXMS format as input, which is a unified, lightweight, scalable, and human-readable file format for HX/MS data. The HXMS format preserves the isotopic mass envelopes for all peptides, captures the full experimental time-course including the fully deuterated control samples, and contains all other key information. HXMS files can be generated using [PFLink](https://huggingface.co/spaces/glasgow-lab/PFLink), which supports exports from BioPharma Finder, HDExaminer, DynamX, and HDX Workbench. 
+
+**Basic usage**
+Run PFNet on a single HX/MS data file:
+
+```bash
+pixi run pfnet --input examples/EEHEEEEHEE_rd4_0871.hxms --generate_all
+```
+
+**Comparison analysis**
+Compare two protein states:
+
+```bash
+pixi run pfnet --input examples/ecDHFR_APO.hxms --input2 examples/ecDHFR_MTX.hxms --generate_all
+```
+
+**With structure visualization**
+Generate B-factor plots for PDB visualization:
+
+```bash
+pixi run pfnet --input examples/ecDHFR_APO.hxms --pdb_id 6XG5 --generate_all
+```
+
+**GPU acceleration (Linux only)**
+
+Note: GPU is primarily used for training the model. Inference is already very fast on CPU, so GPU acceleration provides minimal speedup for typical use cases.
+
+```bash
+pixi run -e cuda pfnet --input examples/EEHEEEEHEE_rd4_0871.hxms --generate_all
+```
+
+## Output files
 
 PFNet generates comprehensive outputs organized in the following structure:
 
@@ -156,7 +136,7 @@ output_dir/
 └── summary.txt                       # Comprehensive analysis summary
 ```
 
-### Output Descriptions
+### Output descriptions
 
 - **JSON files**: Raw prediction results including kex values, confidence scores, and model metadata
 - **CSV files**: Residue-level data with columns for:
@@ -171,36 +151,36 @@ output_dir/
 - **Summary**: Statistics of the input data and analysis results
 
 
-## examples
+## Examples
 
-### example 1: basic analysis
+**Basic analysis**
 ```bash
 pixi run pfnet --input examples/EEHEEEEHEE_rd4_0871.hxms --generate_all
 ```
 
-### example 2: state comparison
+**State comparison**
 ```bash
 pixi run pfnet --input examples/EEHEEEEHEE_rd4_0871.hxms --input2 examples/state2.hxms --generate_all
 ```
 
-### example 3: with structure
+**With structure**
 ```bash
 pixi run pfnet --input examples/EEHEEEEHEE_rd4_0871.hxms --pdb_id 1A2B --generate_all
 ```
 
-### example 4: custom output directory
+**Custom output directory**
 ```bash
 pixi run pfnet --input examples/EEHEEEEHEE_rd4_0871.hxms --output_dir ./my_analysis --generate_all
 ```
 
-### example 5: run from any directory
+**Run from any directory**
 ```bash
-# from any directory, specify the full path to pyproject.toml
 pixi run --manifest-path /path/to/PFNet/pyproject.toml pfnet --input examples/EEHEEEEHEE_rd4_0871.hxms --generate_all
 ```
 
-### setting up a global alias (optional)
-for convenience, you can create a global alias to run pfnet from anywhere:
+**Optional global alias**
+
+For convenience, you can create a global alias to run PFNet from anywhere:
 
 ```bash
 # add to your ~/.zshrc or ~/.bashrc
@@ -213,16 +193,16 @@ source ~/.zshrc  # or source ~/.bashrc
 pfnet --input examples/EEHEEEEHEE_rd4_0871.hxms --generate_all
 ```
 
-## model types
+## Model types
 
-pfnet offers two model variants:
+PFNet offers two model variants:
 
 - **envelope model** (`--model_type envelope`): default model that utilizes the full isotope envelopes (recommended)
 - **centroid model** (`--model_type centroid`): simplified model that only uses centroid uptake value for the prediction (only use it if there is no envelope data)
 
-## visualization in pymol
+## Visualization in PyMOL
 
-to visualize the $\Delta G_{op}$ values in pymol using the output pdb file, use the following commands:
+To visualize the $\Delta G_{op}$ values in PyMOL using the output PDB file, use the following commands:
 
 ```python
 spectrum b, white_orange, minimum=0, maximum=80;
@@ -232,8 +212,12 @@ util.cnc
 set valence, 0
 ```
 
-note: nans are prolines, residues not covered, or noisy data. 
+Note: nans are prolines, residues not covered, or noisy data.
 
-## acknowledgments
+## Acknowledgments
 
-pfnet builds upon the [PIGEON-FEATHER](https://github.com/glasgowlab/PIGEON-FEATHER) library for hx/ms data processing and analysis.
+PFNet builds upon the [PIGEON-FEATHER](https://github.com/glasgowlab/PIGEON-FEATHER) library for HX/MS data processing and analysis.
+
+## Discord
+
+Chat with other users on our [Discord channel](https://discord.com/invite/3EwY2rWF).

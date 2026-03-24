@@ -32,7 +32,11 @@ pixi install -e cuda
 
 ## Tutorial notebook
 
-For a step-by-step walkthrough of PFNet usage, see the tutorial notebook at [notebooks/tutorial.ipynb](notebooks/tutorial.ipynb).
+For step-by-step walkthroughs of PFNet usage, see the tutorial notebooks:
+
+- [Tutorial 1: Getting started with PFNet](notebooks/tutorial_1_base.ipynb)
+- [Tutorial 2: Planning experiments with PFNet](notebooks/tutorial_2_planning_experiments_with_pfnet.ipynb)
+- [Tutorial 3: Identifying misidentified peptides](notebooks/tutorial_3_misidentified_peptides.ipynb)
 
 ## Command line interface
 

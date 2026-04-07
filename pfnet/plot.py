@@ -196,7 +196,15 @@ def plot_uptake_curves(hdxms_data_list, protein_name, outdir, time_window=None, 
         selected_idf = all_idfs_subset[fig_index * num_subplots_per_figure : (fig_index + 1) * num_subplots_per_figure]
         num_col = math.ceil(len(selected_idf) / 5)
 
-        fig, axs = plt.subplots(num_col, 5, figsize=(9 * 5, 8 * num_col))
+        ax_w, ax_h = 7.0, 6.0   
+        wspace_in, hspace_in = 1.5, 2.0 
+        ml, mr, mb, mt = 2.0, 2.0, 2.0, 2.0
+        
+        ncols = 5
+        total_w = ncols * ax_w + (ncols - 1) * wspace_in + ml + mr
+        total_h = num_col * ax_h + (num_col - 1) * hspace_in + mb + mt
+        
+        fig, axs = plt.subplots(num_col, 5, figsize=(total_w, total_h))
 
         for i, idf in enumerate(selected_idf):
             if num_col == 1:
@@ -249,7 +257,15 @@ def plot_uptake_curves(hdxms_data_list, protein_name, outdir, time_window=None, 
                 pass
 
         # Layout adjustment and save
-        fig.tight_layout()
+        #fig.tight_layout()
+        fig.subplots_adjust(
+            left=ml / total_w,
+            right=1 - mr / total_w,
+            bottom=mb / total_h,
+            top=1 - mt / total_h,
+            wspace=wspace_in / ax_w,
+            hspace=hspace_in / ax_h,
+        )
         fig.savefig(f"{outdir}/{protein_name}_uptake_{fig_index}.pdf")
 
 

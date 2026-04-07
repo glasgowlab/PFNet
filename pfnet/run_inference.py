@@ -537,7 +537,7 @@ def forward_chunked_batches(model, x, chunk_size=250, chunk_padding=50, centroid
     #     log_kex, log_kch, pred_log_kex, pred_log_kex_confidence = model._sort_log_kex(log_kex, log_kch, pred_log_kex, pred_log_kex_confidence, residue_data["resolution_limits"])
     # else:
     # pro_mask = residue_data["proline_mask"]
-    # log_kex, log_kch, pred_log_kex, pred_log_kex_confidence = model._sort_log_kex(log_kex, log_kch, pred_log_kex_mask_inf, pred_log_kex_confidence, residue_data["resolution_limits"],                                                                           only_pro_segment=False, pro_mask=pro_mask)
+    # log_kex, log_kch, pred_log_kex, pred_log_kex_confidence = model._sort_log_kex(log_kex, log_kch, pred_log_kex_mask_inf, pred_log_kex_confidence, residue_data["resolution_limits"], only_pro_segment=False, pro_mask=pro_mask)
 
     # mask =  torch.isinf(pred_log_kex)
     mask = seq_mask

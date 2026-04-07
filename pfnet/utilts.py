@@ -763,13 +763,13 @@ def get_summary(output_dicts, hdxms_data_list, output_dir):
                 for _, row in display_df.iterrows()
             ]
             SUMMARY += header + "\n" + "\n".join(rows) + "\n\n"
-            SUMMARY += f"Estimated noise_level: {best_noise_level:.3f}\n"
+            SUMMARY += f"Estimated noise_level: {best_noise_level:.3f}"
             SUMMARY += "\n" + "=" * 60 + "\n"*2
         except Exception as e:
             SUMMARY += "=" * 60 + "\n"
             SUMMARY += " " * 18 + "Noise Level Estimation\n"
             SUMMARY += "=" * 60 + "\n"
-            SUMMARY += f"Noise estimation skipped due to error: {e}\n"
+            SUMMARY += f"Noise estimation skipped due to error: {e}"
             SUMMARY += "=" * 60 + "\n"*2
         
     summary_path = f"{output_dir}/summary.txt"

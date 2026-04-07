@@ -3,7 +3,6 @@ from pigeon_feather.tools import custom_pad, _add_max_d_to_pep
 from pfnet.data import get_resolution_grouping
 import numpy as np
 import torch
-from datetime import datetime
 
 
 def hxms_data_to_grouped_dict(hxms_data):
@@ -12,9 +11,8 @@ def hxms_data_to_grouped_dict(hxms_data):
     all_peptides.sort(key=lambda x: (x.start, x.end))
 
     for i, peptide in enumerate(all_peptides):
-
         pep_dict = {}
-        
+
         # raw_start = int(peptide.identifier.split(" ")[0].split("-")[0])
         # raw_end = int(peptide.identifier.split(" ")[0].split("-")[1])
         # raw_sequence = peptide.identifier.split(" ")[1]
@@ -24,12 +22,18 @@ def hxms_data_to_grouped_dict(hxms_data):
         pep_dict["sequence"] = peptide.raw_sequence
         pep_dict["time"] = [tp.deut_time for tp in peptide.timepoints if tp.deut_time != np.inf]
         pep_dict["num_d"] = [tp.num_d for tp in peptide.timepoints if tp.deut_time != np.inf]
-        pep_dict["isotope"] = [custom_pad(tp.isotope_envelope[:50], 50) for tp in peptide.timepoints if tp.deut_time != np.inf]
+        pep_dict["isotope"] = [
+            custom_pad(tp.isotope_envelope[:50], 50) for tp in peptide.timepoints if tp.deut_time != np.inf
+        ]
         # t0 isotope envelope
-        pep_dict["t0_isotope"] = [custom_pad(peptide.get_timepoint(0).isotope_envelope[:50], 50) for tp in peptide.timepoints if tp.deut_time != np.inf]
+        pep_dict["t0_isotope"] = [
+            custom_pad(peptide.get_timepoint(0).isotope_envelope[:50], 50)
+            for tp in peptide.timepoints
+            if tp.deut_time != np.inf
+        ]
         pep_dict["max_d"] = peptide.max_d
         pep_dict["theo_max_d"] = peptide.theo_max_d
-        pep_dict['effective_deut_rent'] = custom_pad(peptide.deut_rent, 50)
+        pep_dict["effective_deut_rent"] = custom_pad(peptide.deut_rent, 50)
 
         data_dict[f"peptide_{i}"] = pep_dict
 
@@ -39,7 +43,12 @@ def hxms_data_to_grouped_dict(hxms_data):
     data_dict["temperature"] = hxms_data.temperature
     data_dict["pH"] = hxms_data.pH
     from hdxrate import k_int_from_sequence
-    data_dict["log_kch"] =  np.log10(k_int_from_sequence(hxms_data.protein_sequence, hxms_data.temperature, hxms_data.pH, d_percentage=hxms_data.saturation*100))
+
+    data_dict["log_kch"] = np.log10(
+        k_int_from_sequence(
+            hxms_data.protein_sequence, hxms_data.temperature, hxms_data.pH, d_percentage=hxms_data.saturation * 100
+        )
+    )
     data_dict["log_kex"] = np.zeros(len(hxms_data.protein_sequence))
     data_dict["log_P"] = np.zeros(len(hxms_data.protein_sequence))
     data_dict["saturation"] = hxms_data.saturation
@@ -68,7 +77,13 @@ def datadict_to_hdxmsdata(
     )
 
     for start, end, time, num_d, envelope, max_d, deut_rent in zip(
-        data_dict["start"], data_dict["end"], data_dict["time_points"], data_dict["num_d"], data_dict["isotope_envelope"], data_dict["max_d"], data_dict['effective_deut_rent']
+        data_dict["start"],
+        data_dict["end"],
+        data_dict["time_points"],
+        data_dict["num_d"],
+        data_dict["isotope_envelope"],
+        data_dict["max_d"],
+        data_dict["effective_deut_rent"],
     ):
         # Check if protein state exists
         protein_state = None
@@ -82,10 +97,10 @@ def datadict_to_hdxmsdata(
             protein_state = ProteinState(protein_name, hdxms_data=hdxms_data)
             hdxms_data.add_state(protein_state)
 
-        #raw_start = int(start-n_fastamides)
+        # raw_start = int(start-n_fastamides)
         raw_start = int(start)
         raw_end = int(end)
-        raw_sequence = protein_sequence[raw_start -1: raw_end]
+        raw_sequence = protein_sequence[raw_start - 1 : raw_end]
 
         # Check if peptide exists in current state
         peptide = None
@@ -128,8 +143,7 @@ def datadict_to_hdxmsdata(
         peptide.add_timepoint(timepoint, allow_duplicate=True)
 
         if timepoint.deut_time == 0.0:
-           # _add_max_d_to_pep(peptide, max_d=(1 - float(back_ex)) * peptide.theo_max_d, force=True)
+            # _add_max_d_to_pep(peptide, max_d=(1 - float(back_ex)) * peptide.theo_max_d, force=True)
             _add_max_d_to_pep(peptide, max_d=max_d, force=True)
 
     return hdxms_data
-

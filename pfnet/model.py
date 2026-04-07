@@ -2,17 +2,34 @@ import torch
 import torch.nn as nn
 import math
 import lightning as L
-import numpy as np
-import torch
-from pfnet.utilts import get_calculated_isotope_envelope, get_calculated_num_d, get_log_kex_inrange
-from scipy.optimize import linear_sum_assignment
+from pfnet.utilts import get_calculated_isotope_envelope, get_calculated_num_d
 
 
 class AminoAcidEncoder:
     def __init__(self, aa_vocab=None, pad_char="-"):
-
         if aa_vocab is None:
-            aa_vocab = ["A", "C", "D", "E", "F", "G", "H", "I", "K", "L", "M", "N", "P", "Q", "R", "S", "T", "V", "W", "Y"]
+            aa_vocab = [
+                "A",
+                "C",
+                "D",
+                "E",
+                "F",
+                "G",
+                "H",
+                "I",
+                "K",
+                "L",
+                "M",
+                "N",
+                "P",
+                "Q",
+                "R",
+                "S",
+                "T",
+                "V",
+                "W",
+                "Y",
+            ]
         self.pad_char = pad_char
         if self.pad_char not in aa_vocab:
             aa_vocab.append(self.pad_char)
@@ -23,7 +40,6 @@ class AminoAcidEncoder:
         self.idx2char[-100] = self.pad_char  # Add -100 mapping
 
     def encode(self, sequences, max_length=60):
-
         if max_length is None:
             max_length = max(len(seq) for seq in sequences)
 
@@ -38,7 +54,6 @@ class AminoAcidEncoder:
         return encoded
 
     def decode(self, encoded_tensor):
-
         decoded_seqs = []
         for row in encoded_tensor:
             chars = [self.idx2char[int(idx.item())] for idx in row]
@@ -94,7 +109,6 @@ class TransformerEncoder(nn.Module):
         return output, attention_weights
 
     def plot_attention_maps(self, attn_weights, layer_idx=0, head_idx=0, save_path=None, protein_index=0):
-
         import matplotlib.pyplot as plt
         import seaborn as sns
 
@@ -136,9 +150,17 @@ class TransformerDecoder(nn.Module):
         self.n_layers = n_layers
         self.num_heads = num_heads
 
-    def forward(self, tgt, memory, tgt_mask=None, tgt_key_padding_mask=None, memory_key_padding_mask=None, need_weights=False):
+    def forward(
+        self, tgt, memory, tgt_mask=None, tgt_key_padding_mask=None, memory_key_padding_mask=None, need_weights=False
+    ):
         if not need_weights:
-            return self.decoder(tgt, memory, tgt_mask=None, tgt_key_padding_mask=tgt_key_padding_mask, memory_key_padding_mask=memory_key_padding_mask)
+            return self.decoder(
+                tgt,
+                memory,
+                tgt_mask=None,
+                tgt_key_padding_mask=tgt_key_padding_mask,
+                memory_key_padding_mask=memory_key_padding_mask,
+            )
 
         # Store attention weights from all layers
         self_attention_weights = []
@@ -187,7 +209,9 @@ class TransformerDecoder(nn.Module):
 
         return output, (self_attention_weights, cross_attention_weights)
 
-    def plot_attention_maps(self, attn_weights, layer_idx=0, head_idx=0, is_self_attention=True, save_path=None, protein_index=0):
+    def plot_attention_maps(
+        self, attn_weights, layer_idx=0, head_idx=0, is_self_attention=True, save_path=None, protein_index=0
+    ):
         """
         Plot attention maps for a specific layer and head
 
@@ -247,7 +271,10 @@ class SinusoidalEncoder(nn.Module):
 
         # Calculate the div_term
         div_term = (
-            torch.exp(torch.arange(0, self.d_model, 2, device=positions.device, dtype=torch.float32) * (-math.log(self.max_len) / self.d_model))
+            torch.exp(
+                torch.arange(0, self.d_model, 2, device=positions.device, dtype=torch.float32)
+                * (-math.log(self.max_len) / self.d_model)
+            )
             .unsqueeze(0)
             .unsqueeze(0)
         )  # Shape: (1, 1, d_model/2)
@@ -299,7 +326,6 @@ class TimePointEmbedder(nn.Module):
         self.fusion = nn.Sequential(nn.Linear(d_model, d_model), nn.LayerNorm(d_model))
 
     def forward(self, time_point, padding_mask=None):
-
         if padding_mask is not None:
             padding_mask = padding_mask.bool()
         else:
@@ -328,55 +354,55 @@ class TimePointEmbedder(nn.Module):
 
         return time_embed
 
+
 class ConditionalBatchNorm1d(nn.Module):
     def __init__(self, num_features, condition_dim):
         super().__init__()
         self.num_features = num_features
-        
+
         self.bn = nn.BatchNorm1d(num_features, affine=False)
-        
+
         self.condition_mapper = nn.Linear(condition_dim, num_features * 2)
-        
+
         nn.init.zeros_(self.condition_mapper.weight)
         nn.init.constant_(self.condition_mapper.bias[:num_features], 1)
         nn.init.zeros_(self.condition_mapper.bias[num_features:])
 
     def forward(self, x, c):
-
-        normalized_x = self.bn(x)    
+        normalized_x = self.bn(x)
 
         gamma_beta = self.condition_mapper(c)
-        gamma = gamma_beta[:, :self.num_features].unsqueeze(-1)
-        beta = gamma_beta[:, self.num_features:].unsqueeze(-1)
-        
+        gamma = gamma_beta[:, : self.num_features].unsqueeze(-1)
+        beta = gamma_beta[:, self.num_features :].unsqueeze(-1)
+
         out = normalized_x * gamma + beta
-        
+
         return out
-    
-    
+
+
 class ProbabilityEncoder(nn.Module):
     def __init__(self, d_model, max_size=50, condition_embed_dim=128):
         super(ProbabilityEncoder, self).__init__()
 
-        self.conv1 = nn.Conv1d(in_channels=1, out_channels=16, kernel_size=3, padding=1)  # kernel_size = 4, padding=0, stride = 2
+        self.conv1 = nn.Conv1d(
+            in_channels=1, out_channels=16, kernel_size=3, padding=1
+        )  # kernel_size = 4, padding=0, stride = 2
         self.conv2 = nn.Conv1d(in_channels=16, out_channels=32, kernel_size=3, padding=1)  # out_channels=64
         self.conv3 = nn.Conv1d(in_channels=32, out_channels=64, kernel_size=3, padding=1)
-        
+
         self.cond_norm1 = ConditionalBatchNorm1d(16, condition_embed_dim)
         self.cond_norm2 = ConditionalBatchNorm1d(32, condition_embed_dim)
         self.cond_norm3 = ConditionalBatchNorm1d(64, condition_embed_dim)
-        
+
         # Define a fully connected layer
-        self.sequential = nn.Sequential(nn.Linear(64 * max_size, d_model * 4), nn.ELU(), nn.Dropout(0.1), nn.Linear(d_model * 4, d_model))
+        self.sequential = nn.Sequential(
+            nn.Linear(64 * max_size, d_model * 4), nn.ELU(), nn.Dropout(0.1), nn.Linear(d_model * 4, d_model)
+        )
 
         self.act = nn.ELU()
 
         # self.linear_back_ex = nn.Linear(1, max_size)
-        self.condition_encoder = nn.Sequential(
-            nn.Linear(max_size, 256),
-            nn.ELU(),
-            nn.Linear(256, condition_embed_dim)
-        )
+        self.condition_encoder = nn.Sequential(nn.Linear(max_size, 256), nn.ELU(), nn.Linear(256, condition_embed_dim))
 
         self.layer_norm_prob = nn.LayerNorm(d_model)
         self.residual_proj = nn.Linear(max_size, d_model)
@@ -393,7 +419,7 @@ class ProbabilityEncoder(nn.Module):
         identity = probabilities  # Shape: [B, tps, 20]
 
         batch_size, tps, num_bins = probabilities.shape  # num_bins should be 20
-        
+
         back_ex_flat = back_ex.view(batch_size * tps, -1)
         condition_vec = self.condition_encoder(back_ex_flat)
 
@@ -410,15 +436,15 @@ class ProbabilityEncoder(nn.Module):
         x = self.conv1(x)
         x = self.cond_norm1(x, condition_vec)
         x = self.act(x)
- 
+
         x = self.conv2(x)
         x = self.cond_norm2(x, condition_vec)
         x = self.act(x)
-        
+
         x = self.conv3(x)
         x = self.cond_norm3(x, condition_vec)
         x = self.act(x)
-        
+
         # x = self.cond_norm3(x, timestep_embedding)
         x = x.flatten(1)  # Fixed flattening to keep batch dimension
         x = self.sequential(x)
@@ -439,7 +465,16 @@ class ProbabilityEncoder(nn.Module):
 
 
 class PFNet(L.LightningModule):
-    def __init__(self, d_model=128, num_heads=4, num_layers=4, pad_value=-100, learning_rate=1e-4, batch_size=8, num_recycling_cycles=3):
+    def __init__(
+        self,
+        d_model=128,
+        num_heads=4,
+        num_layers=4,
+        pad_value=-100,
+        learning_rate=1e-4,
+        batch_size=8,
+        num_recycling_cycles=3,
+    ):
         super(PFNet, self).__init__()
         self.d_model = d_model
         self.pos_encoder = PositionalEncoder(d_model=int(d_model / 8), max_len=1000)
@@ -471,17 +506,15 @@ class PFNet(L.LightningModule):
         self.learning_rate = learning_rate
         self.batch_size = batch_size
         self.num_recycling_cycles = num_recycling_cycles
-        
+
         self.recycled_prediction_encoder = nn.Sequential(
-            nn.Linear(2, int(d_model / 8)), # (log_kex, confidence)
+            nn.Linear(2, int(d_model / 8)),  # (log_kex, confidence)
             nn.ReLU(),
-            nn.LayerNorm(int(d_model/8))
+            nn.LayerNorm(int(d_model / 8)),
         )
-        
+
         self.envelope_error_encoder = nn.Sequential(
-            nn.Linear(1, d_model // 4), 
-            nn.ReLU(),
-            nn.Linear(d_model // 4, d_model)
+            nn.Linear(1, d_model // 4), nn.ReLU(), nn.Linear(d_model // 4, d_model)
         )
 
     def forward(self, x):
@@ -494,8 +527,8 @@ class PFNet(L.LightningModule):
         time_points = peptide_data["time_point"]  # Shape: (num_peptide_time_points, d_model)
         obs_envelope = peptide_data["probabilities"]  # Shape: (num_peptide_time_points, 20)
         obs_envelope_t0 = peptide_data["t0_isotope"]  # Shape: (num_peptide_time_points, 20)
-        #back_ex = peptide_data["back_ex"].unsqueeze(-1)  # Shape: (num_peptide_time_points, 1)
-        back_ex = 1-peptide_data["effective_deut_rent"]# Shape: (num_peptide_time_points, 1)
+        # back_ex = peptide_data["back_ex"].unsqueeze(-1)  # Shape: (num_peptide_time_points, 1)
+        back_ex = 1 - peptide_data["effective_deut_rent"]  # Shape: (num_peptide_time_points, 1)
         resolution_grouping = residue_data["resolution_grouping"]  # Shape: (num_peptide_time_points,)
         saturation = global_vars[:, -1]
 
@@ -519,8 +552,12 @@ class PFNet(L.LightningModule):
         probabilities_embeddings = self.prob_encoder(obs_envelope, back_ex)  # d_model/2
         peptide_embeddings = torch.cat([token_embeddings, probabilities_embeddings], dim=-1)  # d_model
 
-        transformed_peptide_embeddings = self.peptide_encoder_layers(peptide_embeddings, src_key_padding_mask=peptide_padding_mask)
-        transformed_peptide_embeddings = transformed_peptide_embeddings.masked_fill(peptide_padding_mask.unsqueeze(-1), 0)
+        transformed_peptide_embeddings = self.peptide_encoder_layers(
+            peptide_embeddings, src_key_padding_mask=peptide_padding_mask
+        )
+        transformed_peptide_embeddings = transformed_peptide_embeddings.masked_fill(
+            peptide_padding_mask.unsqueeze(-1), 0
+        )
 
         # get residue embeddings
         batch_size = global_vars.shape[0]
@@ -529,31 +566,36 @@ class PFNet(L.LightningModule):
         seq_positions = seq_positions.unsqueeze(0).expand(batch_size, -1)
 
         residue_pos_embeddings = self.pos_encoder(seq_positions)  # d_model/8
-        saturation_embeddings = self.saturation_encoder(global_vars[:, -1].unsqueeze(1)).unsqueeze(1).expand(-1, seq_positions.shape[1], -1) # d_model/8
-        log_kch = residue_data['log_kch'].unsqueeze(-1)
+        saturation_embeddings = (
+            self.saturation_encoder(global_vars[:, -1].unsqueeze(1)).unsqueeze(1).expand(-1, seq_positions.shape[1], -1)
+        )  # d_model/8
+        log_kch = residue_data["log_kch"].unsqueeze(-1)
         log_kch[seq_mask] = -100
         log_kch_embeddings = self.log_kch_encoder(log_kch)  # d_model/4
         resolution_embeddings = self.resolution_encoder(resolution_grouping)  # d_model/2
-        #residue_embeddings = torch.cat([residue_embeddings, saturation_embeddings, log_kch_embeddings, resolution_embeddings], dim=-1)  # d_model
+        # residue_embeddings = torch.cat([residue_embeddings, saturation_embeddings, log_kch_embeddings, resolution_embeddings], dim=-1)  # d_model
 
         recycled_log_kex = torch.zeros_like(log_kch)
         recycled_confidence = torch.zeros_like(log_kch)
-        
+
         last_cycle_error_embedding = torch.zeros_like(transformed_peptide_embeddings)
 
         all_cycle_predictions = []
-                
+
         for cycle in range(self.num_recycling_cycles):
             recycled_input = torch.cat([recycled_log_kex, recycled_confidence], dim=-1)
-            recycled_embeddings = self.recycled_prediction_encoder(recycled_input) 
-            
-            residue_embeddings = torch.cat([
-                residue_pos_embeddings, 
-                saturation_embeddings, 
-                log_kch_embeddings, 
-                resolution_embeddings,
-                recycled_embeddings  
-            ], dim=-1)
+            recycled_embeddings = self.recycled_prediction_encoder(recycled_input)
+
+            residue_embeddings = torch.cat(
+                [
+                    residue_pos_embeddings,
+                    saturation_embeddings,
+                    log_kch_embeddings,
+                    resolution_embeddings,
+                    recycled_embeddings,
+                ],
+                dim=-1,
+            )
 
             current_memory = transformed_peptide_embeddings + last_cycle_error_embedding
 
@@ -570,24 +612,31 @@ class PFNet(L.LightningModule):
             pred_log_kex = self.regression_layer(decoder_output).squeeze(2)
             pred_log_kex_confidence = self.confidence_layer(decoder_output).squeeze(2)
             # output_classification = self.classification_layer(decoder_output)
-            
+
             all_cycle_predictions.append((pred_log_kex, pred_log_kex_confidence))
-            
-             # detach from the graph so gradients don't flow back through multiple cycles
+
+            # detach from the graph so gradients don't flow back through multiple cycles
             recycled_log_kex = pred_log_kex.detach().unsqueeze(-1)
             recycled_confidence = pred_log_kex_confidence.detach().unsqueeze(-1)
-            
+
             with torch.no_grad():
                 pred_log_kex_inf = pred_log_kex.clone().detach()
                 pred_log_kex_inf[seq_mask] = -float("inf")
                 recyled_pred_envelope = get_calculated_isotope_envelope(
-                    start_pos, end_pos, time_points, obs_envelope_t0, obs_envelope, pred_log_kex_inf, back_ex, saturation
+                    start_pos,
+                    end_pos,
+                    time_points,
+                    obs_envelope_t0,
+                    obs_envelope,
+                    pred_log_kex_inf,
+                    back_ex,
+                    saturation,
                 )
-                
+
                 recycled_envelope_error = (recyled_pred_envelope - obs_envelope).abs().sum(dim=-1).unsqueeze(-1).float()
                 recycled_envelope_error[envelope_mask] = 0
-                #recycled_envelope_error = (obs_envelope - recyled_pred_envelope).float()
-            
+                # recycled_envelope_error = (obs_envelope - recyled_pred_envelope).float()
+
             last_cycle_error_embedding = self.envelope_error_encoder(recycled_envelope_error.detach())
             last_cycle_error_embedding = last_cycle_error_embedding.masked_fill(peptide_padding_mask.unsqueeze(-1), 0)
 
@@ -597,16 +646,23 @@ class PFNet(L.LightningModule):
         final_pred_log_kex_mask_inf = final_pred_log_kex.clone()
         final_pred_log_kex_mask_inf[seq_mask] = -float("inf")
         pred_envelope = get_calculated_isotope_envelope(
-            start_pos, end_pos, time_points, obs_envelope_t0, obs_envelope, final_pred_log_kex_mask_inf, back_ex, saturation
+            start_pos,
+            end_pos,
+            time_points,
+            obs_envelope_t0,
+            obs_envelope,
+            final_pred_log_kex_mask_inf,
+            back_ex,
+            saturation,
         )
-        
+
         # Return all cycle predictions for loss calculation, and the final envelope
         return all_cycle_predictions, pred_envelope, obs_envelope, seq_mask, envelope_mask
-    
+
     # def setup(self, stage=None):
     #     if stage == "fit":
     #         self.forward = torch.compile(self.forward)
-    
+
     def get_mask(self, x):
         peptide_data, residue_data, global_vars, log_kex = x
         peptide_padding_mask = (peptide_data["start_pos"] == -100).bool()
@@ -614,16 +670,19 @@ class PFNet(L.LightningModule):
         nan_mask = (residue_data["resolution_grouping"][:, :, 0] == 1).bool()  # non-peptide residues
         inf_mask = residue_data["proline_mask"].bool()
         seq_mask = residue_padding_mask | nan_mask | inf_mask
-        
+
         t0_mask = peptide_data["time_point"] == 0
         envelope_mask = peptide_padding_mask | t0_mask
-        
+
         return peptide_padding_mask, seq_mask, envelope_mask
-    
+
     def get_single_pos(self, x):
         peptide_data, residue_data, global_vars, log_kex = x
-        resolution_start_idx, resolution_end_idx = residue_data['resolution_limits'][:,:,0]-1, residue_data['resolution_limits'][:,:,1]-1
-        target_shape = (residue_data['resolution_grouping'].shape[0], residue_data['resolution_grouping'].shape[1])
+        resolution_start_idx, resolution_end_idx = (
+            residue_data["resolution_limits"][:, :, 0] - 1,
+            residue_data["resolution_limits"][:, :, 1] - 1,
+        )
+        target_shape = (residue_data["resolution_grouping"].shape[0], residue_data["resolution_grouping"].shape[1])
         device = resolution_start_idx.device
         is_single_mask = (resolution_start_idx == resolution_end_idx) & (resolution_start_idx >= 0)
         batch_indices, segment_indices = torch.where(is_single_mask)
@@ -635,27 +694,34 @@ class PFNet(L.LightningModule):
 
     def calc_loss(self, x, mass_spec_smooth_L1=True):
         peptide_data, residue_data, global_vars, log_kex = x
-        log_kch = residue_data['log_kch'].unsqueeze(-1)
+        log_kch = residue_data["log_kch"].unsqueeze(-1)
 
         all_cycle_predictions, pred_envelope, obs_envelope, seq_mask, envelope_mask = self.forward(x)
-        
+
         total_mse_loss = 0
         total_confidence_loss = 0
         total_kch_loss = 0
-        
+
         # Loop over predictions from each cycle
         for pred_log_kex, pred_log_kex_confidence in all_cycle_predictions:
             # Sort predictions and ground truth for this cycle
             log_kex_sorted, log_kch_sorted, pred_log_kex_sorted, conf_sorted = self._sort_log_kex(
-                log_kex, log_kch, pred_log_kex, pred_log_kex_confidence, residue_data["resolution_limits"], residue_data["proline_mask"]
+                log_kex,
+                log_kch,
+                pred_log_kex,
+                pred_log_kex_confidence,
+                residue_data["resolution_limits"],
+                residue_data["proline_mask"],
             )
-                        
+
             mask = seq_mask
 
-            # Calculate loss for this cycle        
+            # Calculate loss for this cycle
             total_mse_loss += nn.MSELoss()(log_kex_sorted[~mask], pred_log_kex_sorted[~mask])
-            total_kch_loss += torch.mean(nn.functional.relu(pred_log_kex_sorted[~mask] - log_kch_sorted[~mask].squeeze(-1)))
-            
+            total_kch_loss += torch.mean(
+                nn.functional.relu(pred_log_kex_sorted[~mask] - log_kch_sorted[~mask].squeeze(-1))
+            )
+
             abs_error = torch.abs(log_kex_sorted[~mask] - pred_log_kex_sorted[~mask])
             target_confidence = torch.exp(-0.2 * abs_error)
             total_confidence_loss += nn.SmoothL1Loss()(conf_sorted[~mask], target_confidence)
@@ -666,14 +732,16 @@ class PFNet(L.LightningModule):
         confidence_loss = total_confidence_loss / num_cycles
         kch_loss = total_kch_loss / num_cycles
 
-        envelope_loss, centroid_loss = self.calc_mass_spec_loss(obs_envelope, pred_envelope, envelope_mask, smooth_L1=mass_spec_smooth_L1)
+        envelope_loss, centroid_loss = self.calc_mass_spec_loss(
+            obs_envelope, pred_envelope, envelope_mask, smooth_L1=mass_spec_smooth_L1
+        )
 
         log_kex_mse_weight = 1
         log_kex_confidence_weight = 50
         envelope_loss_weight = 50
         centroid_loss_weight = 1
         kch_loss_weight = 1
-                     
+
         # total loss
         total_loss = (
             mse_loss * log_kex_mse_weight
@@ -682,7 +750,7 @@ class PFNet(L.LightningModule):
             + centroid_loss * centroid_loss_weight
             + kch_loss * kch_loss_weight
         )
-        
+
         loss_dict = {
             "mse_loss": mse_loss,
             "confidence_loss": confidence_loss,
@@ -692,8 +760,6 @@ class PFNet(L.LightningModule):
         }
 
         return loss_dict, total_loss
-
-        return mse_loss, classification_loss, total_loss
 
     def calc_mass_spec_loss(self, obs_envelope, pred_envelope, envelope_mask=None, smooth_L1=True):
         """
@@ -705,15 +771,25 @@ class PFNet(L.LightningModule):
         obs_centroid = (obs_envelope * mass_num).sum(dim=-1)
 
         if smooth_L1:
-            envelope_loss = nn.SmoothL1Loss(reduction="none")(pred_envelope[~envelope_mask], obs_envelope[~envelope_mask]).sum(dim=-1).mean()
+            envelope_loss = (
+                nn.SmoothL1Loss(reduction="none")(pred_envelope[~envelope_mask], obs_envelope[~envelope_mask])
+                .sum(dim=-1)
+                .mean()
+            )
             centroid_loss = nn.SmoothL1Loss()(pred_centroid[~envelope_mask], obs_centroid[~envelope_mask])
         else:
-            envelope_loss = nn.L1Loss(reduction="none")(pred_envelope[~envelope_mask], obs_envelope[~envelope_mask]).sum(dim=-1).mean()
+            envelope_loss = (
+                nn.L1Loss(reduction="none")(pred_envelope[~envelope_mask], obs_envelope[~envelope_mask])
+                .sum(dim=-1)
+                .mean()
+            )
             centroid_loss = nn.L1Loss()(pred_centroid[~envelope_mask], obs_centroid[~envelope_mask])
 
         return envelope_loss, centroid_loss
 
-    def _sort_log_kex(self, log_kex, log_kch, pred_log_kex, confidence, resolution_limits, pro_mask, only_pro_segment=False):
+    def _sort_log_kex(
+        self, log_kex, log_kch, pred_log_kex, confidence, resolution_limits, pro_mask, only_pro_segment=False
+    ):
         """sort log_kex based on the resolution limits"""
 
         log_kex_clone = log_kex.clone()
@@ -722,7 +798,11 @@ class PFNet(L.LightningModule):
         confidence_clone = confidence.clone()
 
         batch_size = log_kex.shape[1]
-        batch_idx = torch.arange(resolution_limits.shape[0], device=resolution_limits.device).unsqueeze(1).expand(-1, resolution_limits.shape[1])
+        batch_idx = (
+            torch.arange(resolution_limits.shape[0], device=resolution_limits.device)
+            .unsqueeze(1)
+            .expand(-1, resolution_limits.shape[1])
+        )
         start_idx = resolution_limits[:, :, 0] - 1 + batch_idx * batch_size
         end_idx = resolution_limits[:, :, 1] - 1 + batch_idx * batch_size
 
@@ -738,37 +818,45 @@ class PFNet(L.LightningModule):
         log_kch_sorted_flat = log_kch_clone.view(-1)
         pred_log_kex_sorted_flat = pred_log_kex_clone.view(-1)
         confidence_sorted_flat = confidence_clone.view(-1)
-        
+
         pro_mask_flat = pro_mask.view(-1)
 
         for s, e in zip(start_idx, end_idx):
             segment_has_pro = pro_mask_flat[s : e + 1].sum() > 0
             # skip segments without pro when only_pro_segment=True
-            if only_pro_segment and not segment_has_pro:    
+            if only_pro_segment and not segment_has_pro:
                 continue
-                
+
             # non-pro in current segment
             segment_mask = ~pro_mask_flat[s : e + 1].bool()
-            
-            if segment_mask.any(): 
+
+            if segment_mask.any():
                 # Sort only non-pro positions, skip pro positions
                 segment_slice = slice(s, e + 1)
-                
-            
-                _ , truth_sort_indices = torch.sort(log_kex_sorted_flat[segment_slice][segment_mask], descending=True)
-                
-                # sort the truth
-                log_kex_sorted_flat[segment_slice][segment_mask] = log_kex_sorted_flat[segment_slice][segment_mask][truth_sort_indices]
-                log_kch_sorted_flat[segment_slice][segment_mask] = log_kch_sorted_flat[segment_slice][segment_mask][truth_sort_indices]
-                
-                # sort the pred
-                _, pred_sort_indices = torch.sort(pred_log_kex_sorted_flat[segment_slice][segment_mask], descending=True)
-                pred_log_kex_sorted_flat[segment_slice][segment_mask] = pred_log_kex_sorted_flat[segment_slice][segment_mask][pred_sort_indices]
-                
-                # sort the confidence
-                confidence_sorted_flat[segment_slice][segment_mask] = confidence_sorted_flat[segment_slice][segment_mask][pred_sort_indices]
 
-                
+                _, truth_sort_indices = torch.sort(log_kex_sorted_flat[segment_slice][segment_mask], descending=True)
+
+                # sort the truth
+                log_kex_sorted_flat[segment_slice][segment_mask] = log_kex_sorted_flat[segment_slice][segment_mask][
+                    truth_sort_indices
+                ]
+                log_kch_sorted_flat[segment_slice][segment_mask] = log_kch_sorted_flat[segment_slice][segment_mask][
+                    truth_sort_indices
+                ]
+
+                # sort the pred
+                _, pred_sort_indices = torch.sort(
+                    pred_log_kex_sorted_flat[segment_slice][segment_mask], descending=True
+                )
+                pred_log_kex_sorted_flat[segment_slice][segment_mask] = pred_log_kex_sorted_flat[segment_slice][
+                    segment_mask
+                ][pred_sort_indices]
+
+                # sort the confidence
+                confidence_sorted_flat[segment_slice][segment_mask] = confidence_sorted_flat[segment_slice][
+                    segment_mask
+                ][pred_sort_indices]
+
         # log_kex_sorted = log_kex_sorted_flat.view(log_kex.shape)
         log_kex_sorted = log_kex_sorted_flat.view(log_kex.shape)
         log_kch_sorted = log_kch_sorted_flat.view(log_kch.shape)
@@ -786,7 +874,7 @@ class PFNet(L.LightningModule):
         self.log("train_envelope_loss", loss_dict["envelope_loss"], batch_size=self.batch_size)
         self.log("train_centroid_loss", loss_dict["centroid_loss"], batch_size=self.batch_size)
         self.log("train_kch_loss", loss_dict["kch_loss"], batch_size=self.batch_size)
-        
+
         del batch
         torch.cuda.empty_cache()
 
@@ -795,7 +883,9 @@ class PFNet(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         loss_dict, total_loss = self.calc_loss(batch)
         self.log("val_loss", total_loss, batch_size=self.batch_size, add_dataloader_idx=False)
-        self.log("val_confidence_loss", loss_dict["confidence_loss"], batch_size=self.batch_size, add_dataloader_idx=False)
+        self.log(
+            "val_confidence_loss", loss_dict["confidence_loss"], batch_size=self.batch_size, add_dataloader_idx=False
+        )
         self.log("val_mse_loss", loss_dict["mse_loss"], batch_size=self.batch_size, add_dataloader_idx=False)
         self.log("val_envelope_loss", loss_dict["envelope_loss"], batch_size=self.batch_size, add_dataloader_idx=False)
         self.log("val_centroid_loss", loss_dict["centroid_loss"], batch_size=self.batch_size, add_dataloader_idx=False)
@@ -839,9 +929,20 @@ class PFNet(L.LightningModule):
 
 
 class PFNetCentroid(PFNet):
-    def __init__(self, d_model=128, num_heads=4, num_layers=4, pad_value=-100, learning_rate=1e-4, batch_size=8, num_recycling_cycles=3):
-        super(PFNetCentroid, self).__init__(d_model, num_heads, num_layers, pad_value, learning_rate, batch_size, num_recycling_cycles)
-        
+    def __init__(
+        self,
+        d_model=128,
+        num_heads=4,
+        num_layers=4,
+        pad_value=-100,
+        learning_rate=1e-4,
+        batch_size=8,
+        num_recycling_cycles=3,
+    ):
+        super(PFNetCentroid, self).__init__(
+            d_model, num_heads, num_layers, pad_value, learning_rate, batch_size, num_recycling_cycles
+        )
+
         del self.prob_encoder
         self.num_d_encoder = NumDEncoder(d_model=int(d_model / 2))
 
@@ -854,10 +955,10 @@ class PFNetCentroid(PFNet):
         time_points = peptide_data["time_point"]
         num_d = peptide_data["num_d"].unsqueeze(-1)
         # back_ex = peptide_data["back_ex"].unsqueeze(-1)
-        back_ex = 1-peptide_data["effective_deut_rent"]
+        back_ex = 1 - peptide_data["effective_deut_rent"]
         resolution_grouping = residue_data["resolution_grouping"]
         saturation = global_vars[:, -1]
-        log_kch = residue_data['log_kch'].unsqueeze(-1)
+        log_kch = residue_data["log_kch"].unsqueeze(-1)
 
         # get mask
         peptide_padding_mask, seq_mask, num_d_mask = self.get_mask(x)
@@ -874,8 +975,12 @@ class PFNetCentroid(PFNet):
         num_d_embeddings = self.num_d_encoder(num_d, back_ex)  # d_model/2
         peptide_embeddings = torch.cat([token_embeddings, num_d_embeddings], dim=-1)  # d_model
 
-        transformed_peptide_embeddings = self.peptide_encoder_layers(peptide_embeddings, src_key_padding_mask=peptide_padding_mask)
-        transformed_peptide_embeddings = transformed_peptide_embeddings.masked_fill(peptide_padding_mask.unsqueeze(-1), 0)
+        transformed_peptide_embeddings = self.peptide_encoder_layers(
+            peptide_embeddings, src_key_padding_mask=peptide_padding_mask
+        )
+        transformed_peptide_embeddings = transformed_peptide_embeddings.masked_fill(
+            peptide_padding_mask.unsqueeze(-1), 0
+        )
 
         # get residue embeddings
         batch_size = global_vars.shape[0]
@@ -884,30 +989,34 @@ class PFNetCentroid(PFNet):
         seq_positions = seq_positions.unsqueeze(0).expand(batch_size, -1)
 
         residue_pos_embeddings = self.pos_encoder(seq_positions)
-        saturation_embeddings = self.saturation_encoder(global_vars[:, -1].unsqueeze(1)).unsqueeze(1).expand(-1, seq_positions.shape[1], -1)
+        saturation_embeddings = (
+            self.saturation_encoder(global_vars[:, -1].unsqueeze(1)).unsqueeze(1).expand(-1, seq_positions.shape[1], -1)
+        )
         log_kch[seq_mask] = -100
         log_kch_embeddings = self.log_kch_encoder(log_kch)
         resolution_embeddings = self.resolution_encoder(resolution_grouping)
 
         recycled_log_kex = torch.zeros_like(log_kch)
         recycled_confidence = torch.zeros_like(log_kch)
-        
+
         last_cycle_error_embedding = torch.zeros_like(transformed_peptide_embeddings)
-        
+
         all_cycle_predictions = []
 
         for cycle in range(self.num_recycling_cycles):
             recycled_input = torch.cat([recycled_log_kex, recycled_confidence], dim=-1)
             recycled_embeddings = self.recycled_prediction_encoder(recycled_input)
 
-            residue_embeddings = torch.cat([
-                residue_pos_embeddings,
-                saturation_embeddings,
-                log_kch_embeddings,
-                resolution_embeddings,
-                recycled_embeddings
-            ], dim=-1)
-
+            residue_embeddings = torch.cat(
+                [
+                    residue_pos_embeddings,
+                    saturation_embeddings,
+                    log_kch_embeddings,
+                    resolution_embeddings,
+                    recycled_embeddings,
+                ],
+                dim=-1,
+            )
 
             current_memory = transformed_peptide_embeddings + last_cycle_error_embedding
 
@@ -926,15 +1035,16 @@ class PFNetCentroid(PFNet):
 
             recycled_log_kex = pred_log_kex.detach().unsqueeze(-1)
             recycled_confidence = pred_log_kex_confidence.detach().unsqueeze(-1)
-            
-            
+
             with torch.no_grad():
                 pred_log_kex_inf = pred_log_kex.clone().detach()
                 pred_log_kex_inf[seq_mask] = -float("inf")
-                recycled_num_d = get_calculated_num_d(start_pos, end_pos, time_points, pred_log_kex_inf, back_ex, saturation).unsqueeze(-1)
+                recycled_num_d = get_calculated_num_d(
+                    start_pos, end_pos, time_points, pred_log_kex_inf, back_ex, saturation
+                ).unsqueeze(-1)
                 recycled_num_d_error = recycled_num_d - num_d
                 recycled_num_d_error[num_d_mask] = 0
-                
+
             last_cycle_error_embedding = self.envelope_error_encoder(recycled_num_d_error.detach())
             last_cycle_error_embedding = last_cycle_error_embedding.masked_fill(peptide_padding_mask.unsqueeze(-1), 0)
 
@@ -944,7 +1054,7 @@ class PFNetCentroid(PFNet):
 
     def calc_loss(self, x, mass_spec_smooth_L1=True):
         peptide_data, residue_data, global_vars, log_kex = x
-        log_kch = residue_data['log_kch'].unsqueeze(-1)
+        log_kch = residue_data["log_kch"].unsqueeze(-1)
 
         all_cycle_predictions, pred_num_d, num_d, seq_mask, num_d_mask = self.forward(x)
 
@@ -962,24 +1072,26 @@ class PFNetCentroid(PFNet):
             log_kch_sorted = log_kch
             pred_log_kex_sorted = pred_log_kex
             conf_sorted = pred_log_kex_confidence
-            
+
             inf_mask = torch.isinf(log_kex_sorted)
             mask = seq_mask | inf_mask
 
-            # Calculate loss for this cycle        
+            # Calculate loss for this cycle
             total_mse_loss += nn.MSELoss()(log_kex_sorted[~mask], pred_log_kex_sorted[~mask])
-            total_kch_loss += torch.mean(nn.functional.relu(pred_log_kex_sorted[~mask] - log_kch_sorted[~mask].squeeze(-1)))
-            
+            total_kch_loss += torch.mean(
+                nn.functional.relu(pred_log_kex_sorted[~mask] - log_kch_sorted[~mask].squeeze(-1))
+            )
+
             abs_error = torch.abs(log_kex_sorted[~mask] - pred_log_kex_sorted[~mask])
             target_confidence = torch.exp(-0.2 * abs_error)
             total_confidence_loss += nn.SmoothL1Loss()(conf_sorted[~mask], target_confidence)
-            
+
         # Average the losses over the cycles
         num_cycles = len(all_cycle_predictions)
         mse_loss = total_mse_loss / num_cycles
         confidence_loss = total_confidence_loss / num_cycles
         kch_loss = total_kch_loss / num_cycles
-        
+
         # Centroid loss
         if mass_spec_smooth_L1:
             centroid_loss = nn.SmoothL1Loss()(pred_num_d[~num_d_mask], num_d[~num_d_mask])
@@ -989,7 +1101,7 @@ class PFNetCentroid(PFNet):
         log_kex_mse_weight = 1
         log_kex_confidence_weight = 5
         centroid_loss_weight = 1
-        kch_loss_weight = 1          
+        kch_loss_weight = 1
 
         # total loss
         total_loss = (
@@ -1026,13 +1138,22 @@ class PFNetCentroid(PFNet):
         if dataloader_idx == 0:
             loss_dict, total_loss = self.calc_loss(batch)
             self.log("val_loss", total_loss, batch_size=self.batch_size, add_dataloader_idx=False)
-            self.log("val_confidence_loss", loss_dict["confidence_loss"], batch_size=self.batch_size, add_dataloader_idx=False)
+            self.log(
+                "val_confidence_loss",
+                loss_dict["confidence_loss"],
+                batch_size=self.batch_size,
+                add_dataloader_idx=False,
+            )
             self.log("val_mse_loss", loss_dict["mse_loss"], batch_size=self.batch_size, add_dataloader_idx=False)
-            self.log("val_centroid_loss", loss_dict["centroid_loss"], batch_size=self.batch_size, add_dataloader_idx=False)
+            self.log(
+                "val_centroid_loss", loss_dict["centroid_loss"], batch_size=self.batch_size, add_dataloader_idx=False
+            )
             self.log("val_kch_loss", loss_dict["kch_loss"], batch_size=self.batch_size, add_dataloader_idx=False)
         elif dataloader_idx == 1:
             loss_dict, total_loss = self.calc_loss(batch, mass_spec_smooth_L1=False)
-            self.log("laci_centroid_loss", loss_dict["centroid_loss"], batch_size=self.batch_size, add_dataloader_idx=False)
+            self.log(
+                "laci_centroid_loss", loss_dict["centroid_loss"], batch_size=self.batch_size, add_dataloader_idx=False
+            )
             self.log("laci_kch_loss", loss_dict["kch_loss"], batch_size=self.batch_size, add_dataloader_idx=False)
 
         del batch
@@ -1058,27 +1179,22 @@ class NumDEncoder(nn.Module):
         self.max_size = max_size
         self.d_model = d_model
         self.linear = nn.Linear(1, d_model)
-        
+
         # self.linear_back_ex = nn.Linear(1, max_size)
-        self.condition_encoder = nn.Sequential(
-            nn.Linear(max_size, 256),
-            nn.ELU(),
-            nn.Linear(256, d_model)
-        )
-        
+        self.condition_encoder = nn.Sequential(nn.Linear(max_size, 256), nn.ELU(), nn.Linear(256, d_model))
+
         self.cond_norm1 = ConditionalBatchNorm1d(1, d_model)
         self.act = nn.ELU()
 
     def forward(self, num_d, back_ex):
-        
-        batch_size, tps, _ = num_d.shape  
-            
+        batch_size, tps, _ = num_d.shape
+
         back_ex_flat = back_ex.view(batch_size * tps, -1)
         condition_vec = self.condition_encoder(back_ex_flat)
-        
-        x = self.linear(num_d).view(batch_size * tps, 1, self.d_model) 
+
+        x = self.linear(num_d).view(batch_size * tps, 1, self.d_model)
         x = self.cond_norm1(x, condition_vec)
         x = x.view(batch_size, tps, -1)
         x = self.act(x)
-        
+
         return x

@@ -3,14 +3,13 @@ import re
 import math
 import torch
 import matplotlib.pyplot as plt
-import matplotlib.lines as mlines
-import matplotlib.ticker as ticker
-from matplotlib.ticker import LogLocator, MultipleLocator, FormatStrFormatter
+from matplotlib.ticker import LogLocator
 from pigeon_feather.plot import UptakePlot
-from pigeon_feather.analysis import get_res_avg_logP, get_index_offset
+from pigeon_feather.analysis import get_res_avg_logP
 import numpy as np
 import MDAnalysis
 import warnings
+
 
 def pfnet_to_hdxmsdata(
     start_pos,
@@ -158,7 +157,9 @@ def pfnet_to_hdxmsdata(
             peptide_pred.add_timepoint(timepoint_pred, allow_duplicate=True)
 
             # Add back exchange
-            _add_max_d_to_pep(peptide_target, max_d=(1 - back_ex_batch[tp_index]) * peptide_target.theo_max_d, force=True)
+            _add_max_d_to_pep(
+                peptide_target, max_d=(1 - back_ex_batch[tp_index]) * peptide_target.theo_max_d, force=True
+            )
             _add_max_d_to_pep(peptide_pred, max_d=(1 - back_ex_batch[tp_index]) * peptide_pred.theo_max_d, force=True)
 
         hdxms_data_list.append(hdxms_data)
@@ -174,7 +175,9 @@ def plot_uptake_curves(hdxms_data_list, protein_name, outdir, time_window=None, 
     all_idfs.sort(key=lambda x: tuple(map(int, re.findall(r"\d+-\d+", x)[0].split("-"))))
 
     # grab min and max timepoints
-    all_tps = [tp.deut_time for pep in all_peps for tp in pep.timepoints if (tp.deut_time != 0) and (tp.deut_time != np.inf)]
+    all_tps = [
+        tp.deut_time for pep in all_peps for tp in pep.timepoints if (tp.deut_time != 0) and (tp.deut_time != np.inf)
+    ]
     min_tp = np.log10(min(all_tps)) - 1
     max_tp = np.log10(max(all_tps)) + 1
 
@@ -196,14 +199,14 @@ def plot_uptake_curves(hdxms_data_list, protein_name, outdir, time_window=None, 
         selected_idf = all_idfs_subset[fig_index * num_subplots_per_figure : (fig_index + 1) * num_subplots_per_figure]
         num_col = math.ceil(len(selected_idf) / 5)
 
-        ax_w, ax_h = 7.0, 6.0   
-        wspace_in, hspace_in = 1.5, 2.0 
+        ax_w, ax_h = 7.0, 6.0
+        wspace_in, hspace_in = 1.5, 2.0
         ml, mr, mb, mt = 2.0, 2.0, 2.0, 2.0
-        
+
         ncols = 5
         total_w = ncols * ax_w + (ncols - 1) * wspace_in + ml + mr
         total_h = num_col * ax_h + (num_col - 1) * hspace_in + mb + mt
-        
+
         fig, axs = plt.subplots(num_col, 5, figsize=(total_w, total_h))
 
         for i, idf in enumerate(selected_idf):
@@ -219,7 +222,7 @@ def plot_uptake_curves(hdxms_data_list, protein_name, outdir, time_window=None, 
                 else:
                     ax.axhline(y=pep.max_d, color="lightgray", linestyle="--", linewidth=5)
 
-                uptake = UptakePlot(
+                UptakePlot(
                     hdxms_data_list,
                     idf,
                     # states_subset=states_subset,
@@ -235,11 +238,17 @@ def plot_uptake_curves(hdxms_data_list, protein_name, outdir, time_window=None, 
                     ax.set_xlim(10**min_tp, 10**max_tp)
 
                 ax.xaxis.set_major_locator(LogLocator(base=10.0, numticks=5))
-                
+
                 if len(pep.sequence) < 20:
                     ax.set_title(pep.identifier)
                 else:
-                    idf = pep.identifier.split(" ")[0] + " " + pep.identifier.split(" ")[1][:9] + "..." + pep.identifier.split(" ")[1][-9:]
+                    idf = (
+                        pep.identifier.split(" ")[0]
+                        + " "
+                        + pep.identifier.split(" ")[1][:9]
+                        + "..."
+                        + pep.identifier.split(" ")[1][-9:]
+                    )
                     ax.set_title(idf)
 
                 y_max = pep.theo_max_d / 0.9
@@ -257,7 +266,7 @@ def plot_uptake_curves(hdxms_data_list, protein_name, outdir, time_window=None, 
                 pass
 
         # Layout adjustment and save
-        #fig.tight_layout()
+        # fig.tight_layout()
         fig.subplots_adjust(
             left=ml / total_w,
             right=1 - mr / total_w,
@@ -267,7 +276,6 @@ def plot_uptake_curves(hdxms_data_list, protein_name, outdir, time_window=None, 
             hspace=hspace_in / ax_h,
         )
         fig.savefig(f"{outdir}/{protein_name}_uptake_{fig_index}.pdf")
-
 
 
 class BFactorPlot(object):
@@ -291,9 +299,7 @@ class BFactorPlot(object):
 
         if self.analysis_object_2 is not None:
             if analysis_object_1.protein_sequence != analysis_object_2.protein_sequence:
-                warnings.warn(
-                    "The protein sequences of the two analysis objects are different"
-                )
+                warnings.warn("The protein sequences of the two analysis objects are different")
 
         if pdb_file is None:
             raise ValueError("pdb_file is required")
@@ -307,7 +313,7 @@ class BFactorPlot(object):
             if temperature is None:
                 raise ValueError("temperature is required to convert logP to deltaG")
             self.temperature = temperature
-        
+
         self.logP_threshold = logP_threshold
 
     def plot(self, out_file):
@@ -330,7 +336,7 @@ class BFactorPlot(object):
         for res_i, _ in enumerate(self.analysis_object_1.results_obj.protein_sequence):
             res = self.analysis_object_1.results_obj.get_residue_by_resindex(res_i)
             avg_logP, std_logP, avg_ = get_res_avg_logP(res)
-            
+
             if res.if_off_log_kex_range_by_time_window:
                 avg_logP = res._capped_log_P
 
@@ -339,20 +345,18 @@ class BFactorPlot(object):
                 continue
                 # print(res.resid, res.resname ,avg_logP, std_logP, res.clustering_results_logP, res.std_within_clusters_logP)
 
-            protein_res = u.select_atoms(
-                f"protein and resid {res.resid - self.index_offset}"
-            )
+            protein_res = u.select_atoms(f"protein and resid {res.resid - self.index_offset}")
             if self.plot_deltaG:
                 avg_deltaG = self._logPF_to_deltaG(avg_logP)
                 protein_res.atoms.tempfactors = avg_deltaG
 
             else:
                 protein_res.atoms.tempfactors = avg_logP
-                
+
             # add confidence
             protein_res.atoms.occupancies = np.clip(res.pfnet_confidence, 0, 1)
-        
-        PROs = u.select_atoms(f"resname PRO")
+
+        PROs = u.select_atoms("resname PRO")
         PROs.atoms.tempfactors = np.nan
 
         u.atoms.write(out_file)
@@ -362,35 +366,28 @@ class BFactorPlot(object):
         u.atoms.tempfactors = 0.0
 
         for res_i, _ in enumerate(self.analysis_object_1.results_obj.protein_sequence):
-            res_obj_1 = self.analysis_object_1.results_obj.get_residue_by_resindex(
-                res_i
-            )
-            res_obj_2 = self.analysis_object_2.results_obj.get_residue_by_resindex(
-                res_i
-            )
+            res_obj_1 = self.analysis_object_1.results_obj.get_residue_by_resindex(res_i)
+            res_obj_2 = self.analysis_object_2.results_obj.get_residue_by_resindex(res_i)
 
             avg_logP_1, std_logP_1, SE_logP_1 = get_res_avg_logP(res_obj_1)
             avg_logP_2, std_logP_2, SE_logP_2 = get_res_avg_logP(res_obj_2)
-            
-            
+
             # if res_obj_1.if_off_log_kex_range_by_time_window:
             #     avg_logP_1 = res_obj_1._capped_log_P
 
             # if res_obj_2.if_off_log_kex_range_by_time_window:
             #     avg_logP_2 = res_obj_2._capped_log_P
             diff_logP = avg_logP_1 - avg_logP_2
-            combined_SE = np.sqrt(SE_logP_1 ** 2 + SE_logP_2 ** 2)
+            combined_SE = np.sqrt(SE_logP_1**2 + SE_logP_2**2)
 
             # if not siginificant difference, 0.35 is the grid size, white
             if abs(diff_logP) < max(combined_SE, 0.35) and combined_SE <= self.logP_threshold:
-                diff_logP = 0.0  
+                diff_logP = 0.0
             # too noisy → gray
             elif combined_SE > self.logP_threshold:
-                diff_logP = np.nan  
+                diff_logP = np.nan
 
-            protein_res = u.select_atoms(
-                f"protein and resid {res_obj_1.resid - self.index_offset}"
-            )
+            protein_res = u.select_atoms(f"protein and resid {res_obj_1.resid - self.index_offset}")
 
             if self.plot_deltaG:
                 diff_deltaG = self._logPF_to_deltaG(diff_logP)
@@ -400,9 +397,11 @@ class BFactorPlot(object):
                 protein_res.atoms.tempfactors = diff_logP
 
             # add confidence
-            protein_res.atoms.occupancies = (np.clip(res_obj_1.pfnet_confidence, 0, 1)+np.clip(res_obj_2.pfnet_confidence, 0, 1))/2
+            protein_res.atoms.occupancies = (
+                np.clip(res_obj_1.pfnet_confidence, 0, 1) + np.clip(res_obj_2.pfnet_confidence, 0, 1)
+            ) / 2
 
-        PROs = u.select_atoms(f"resname PRO")
+        PROs = u.select_atoms("resname PRO")
         PROs.atoms.tempfactors = np.nan
 
         u.atoms.write(out_file)
@@ -414,14 +413,13 @@ class BFactorPlot(object):
         """
 
         return 8.3145 * self.temperature * np.log(10) * logPF / 1000
-    
-    
-import MDAnalysis
+
 
 def get_index_offset(
     ana_obj,
     pdb_file,
 ):
+    """not required to have exact sequence match"""
     from pigeon_feather.tools import pdb2seq, find_peptide
 
     u = MDAnalysis.Universe(pdb_file)
@@ -437,7 +435,7 @@ def get_index_offset(
     for i in range(1, 9):
         _pos = int(len(seq) * i / 10)
         i_start = max(0, min(_pos - win // 2, len(seq) - win))
-        pep = seq[i_start:i_start + win]
+        pep = seq[i_start : i_start + win]
         if len(pep) < 6:
             continue
         try:

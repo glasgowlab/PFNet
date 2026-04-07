@@ -2,22 +2,20 @@ import torch
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 import seaborn as sns
 import os
 import tempfile
 import glob
-import json
 import urllib.request
 import traceback
 
-from pigeon_feather.analysis import get_res_avg_logP, get_res_avg_logP_std, get_res_avg_log_kex
+from pigeon_feather.analysis import get_res_avg_logP, get_res_avg_log_kex
 from pigeon_feather.tools import calculate_coverages, group_by_attributes
-from pigeon_feather.data import HDXStatePeptideCompares
-from pigeon_feather.hxio import load_HXMS_file
 
 
-def get_calculated_isotope_envelope(start_pos, end_pos, time_points, envelope_t0, envelope, pred_log_kex, back_ex, saturation):
+def get_calculated_isotope_envelope(
+    start_pos, end_pos, time_points, envelope_t0, envelope, pred_log_kex, back_ex, saturation
+):
 
     # grab log_kex in range for each tps
     log_kex_inrange = get_log_kex_inrange(pred_log_kex, start_pos, end_pos)
@@ -27,10 +25,10 @@ def get_calculated_isotope_envelope(start_pos, end_pos, time_points, envelope_t0
 
     # calculate deut_uptake
     deut_uptake = 1 - torch.exp(-1 * (10**log_kex_inrange) * time_point_enc_expanded)
-    #deut_uptake[time_point_enc_expanded == -100] = 0
-    #deut_uptake = deut_uptake * (1 - back_ex) * saturation.unsqueeze(-1).unsqueeze(-1)
+    # deut_uptake[time_point_enc_expanded == -100] = 0
+    # deut_uptake = deut_uptake * (1 - back_ex) * saturation.unsqueeze(-1).unsqueeze(-1)
     deut_uptake[time_point_enc_expanded == -100] = 0
-    deut_uptake = torch.nn.functional.pad(deut_uptake, (0, 50 - deut_uptake.size(-1))) 
+    deut_uptake = torch.nn.functional.pad(deut_uptake, (0, 50 - deut_uptake.size(-1)))
     deut_uptake = deut_uptake * (1 - back_ex) * saturation.unsqueeze(-1).unsqueeze(-1)
 
     # flatten deut_uptake and t0_probabilities
@@ -60,9 +58,9 @@ def get_calculated_num_d(start_pos, end_pos, time_points, pred_log_kex, back_ex,
 
     # calculate deut_uptake
     deut_uptake = 1 - torch.exp(-1 * (10**log_kex_inrange) * time_point_enc_expanded)
-    #deut_uptake = deut_uptake * (1 - back_ex) * saturation.unsqueeze(-1).unsqueeze(-1)
+    # deut_uptake = deut_uptake * (1 - back_ex) * saturation.unsqueeze(-1).unsqueeze(-1)
     deut_uptake[time_point_enc_expanded == -100] = 0
-    deut_uptake = torch.nn.functional.pad(deut_uptake, (0, 50 - deut_uptake.size(-1))) 
+    deut_uptake = torch.nn.functional.pad(deut_uptake, (0, 50 - deut_uptake.size(-1)))
     deut_uptake = deut_uptake * (1 - back_ex) * saturation.unsqueeze(-1).unsqueeze(-1)
 
     # flatten deut_uptake and t0_probabilities
@@ -87,7 +85,9 @@ def get_log_kex_inrange(pred_log_kex, start_pos, end_pos):
 
     # Broadcast and calculate actual indices
     valid_mask = range_indices < lengths.unsqueeze(-1)  # Check if range is valid
-    gather_indices = start_pos.unsqueeze(-1) + range_indices - 1  # Map start_pos to indices (note -1 since indices start at 0)
+    gather_indices = (
+        start_pos.unsqueeze(-1) + range_indices - 1
+    )  # Map start_pos to indices (note -1 since indices start at 0)
 
     # Restrict to valid range
     gather_indices = torch.where(valid_mask, gather_indices, torch.zeros_like(gather_indices))
@@ -166,7 +166,7 @@ def get_display_state_name(state_key, state_keys):
     """Get display name for state, handling duplicates."""
     original_state_names = ["_".join(key.split("_")[:-1]) for key in state_keys]
     has_duplicates = len(original_state_names) != len(set(original_state_names))
-    
+
     if has_duplicates:
         return state_key
     else:
@@ -183,8 +183,7 @@ def get_all_statics_info(hdxms_datas):
     protein_sequence = hdxms_datas[0].protein_sequence
 
     # coverage statistics
-    coverage = [calculate_coverages([data], state.state_name)
-                for data in hdxms_datas for state in data.states]
+    coverage = [calculate_coverages([data], state.state_name) for data in hdxms_datas for state in data.states]
     coverage = np.mean(np.array(coverage), axis=0)
     coverage_non_zero = 1 - np.count_nonzero(coverage == 0) / len(protein_sequence)
 
@@ -201,39 +200,46 @@ def get_all_statics_info(hdxms_datas):
         numbers.sort()
         groups, current_group = [], [numbers[0]]
         for number in numbers[1:]:
-            (current_group.append(number) if number - current_group[0] <= threshold else (groups.append(current_group), current_group := [number]))
+            (
+                current_group.append(number)
+                if number - current_group[0] <= threshold
+                else (groups.append(current_group), current_group := [number])
+            )
         groups.append(current_group)
         return groups, [round(sum(group) / len(group), 1) for group in groups]
 
     groups, avg_timepoints = _group_and_average(time_course)
 
-    # back exchange 
+    # back exchange
     peptides_with_exp = [pep for pep in all_peptides if pep.get_timepoint(np.inf) is not None]
     backexchange_rates = [1 - pep.max_d / pep.theo_max_d for pep in peptides_with_exp]
     if backexchange_rates == []:
         iqr_backexchange = np.nan
-    else:    
+    else:
         iqr_backexchange = np.percentile(backexchange_rates, 75) - np.percentile(backexchange_rates, 25)
 
     redundancy = np.mean(coverage)
 
     stats_text = (
-        "=" * 60 + "\n" +
-        " " * 20 + "HDX-MS Data Statistics\n" +
-        "=" * 60 + "\n" +
-        f"States names: {state_names}\n" +
-        f"Time course (s): {avg_timepoints}\n" +
-        f"Number of time points: {len(avg_timepoints)}\n" +
-        f"Protein sequence length: {len(protein_sequence)}\n" +
-        f"Average coverage: {coverage_non_zero:.2f}\n" +
-        f"Number of unique peptides: {len(unique_peptides)}\n" +
-        f"Average peptide length: {avg_pep_length:.1f}\n" +
-        f"Redundancy (based on average coverage): {redundancy:.1f}\n" +
-        f"Average peptide length to redundancy ratio: {avg_pep_length / redundancy:.1f}\n" +
-        f"Backexchange average, IQR: {np.mean(backexchange_rates):.2f}, {iqr_backexchange:.2f}\n" +
         "=" * 60
+        + "\n"
+        + " " * 20
+        + "HDX-MS Data Statistics\n"
+        + "=" * 60
+        + "\n"
+        + f"States names: {state_names}\n"
+        + f"Time course (s): {avg_timepoints}\n"
+        + f"Number of time points: {len(avg_timepoints)}\n"
+        + f"Protein sequence length: {len(protein_sequence)}\n"
+        + f"Average coverage: {coverage_non_zero:.2f}\n"
+        + f"Number of unique peptides: {len(unique_peptides)}\n"
+        + f"Average peptide length: {avg_pep_length:.1f}\n"
+        + f"Redundancy (based on average coverage): {redundancy:.1f}\n"
+        + f"Average peptide length to redundancy ratio: {avg_pep_length / redundancy:.1f}\n"
+        + f"Backexchange average, IQR: {np.mean(backexchange_rates):.2f}, {iqr_backexchange:.2f}\n"
+        + "=" * 60
     )
-    
+
     return stats_text
 
 
@@ -251,15 +257,8 @@ def estimate_noise_level(hdxms_data_list):
     def _collect_grouped_timepoints(hdxms_data_list):
         if not isinstance(hdxms_data_list, list):
             hdxms_data_list = [hdxms_data_list]
-        all_peptides = [
-            pep
-            for data in hdxms_data_list
-            for state in data.states
-            for pep in state.peptides
-        ]
-        all_timepoints = [
-            tp for pep in all_peptides for tp in pep.timepoints if tp.deut_time not in (0, np.inf)
-        ]
+        all_peptides = [pep for data in hdxms_data_list for state in data.states for pep in state.peptides]
+        all_timepoints = [tp for pep in all_peptides for tp in pep.timepoints if tp.deut_time not in (0, np.inf)]
         grouped_tps = group_by_attributes(
             all_timepoints,
             ["peptide.protein_state.state_name", "peptide.identifier", "deut_time"],
@@ -312,7 +311,6 @@ def estimate_noise_level(hdxms_data_list):
             )
         return pd.DataFrame(rows)
 
-
     grouped_tps = _collect_grouped_timepoints(hdxms_data_list)
 
     details = []
@@ -348,27 +346,31 @@ def get_log_kex_plot(ana_objs, output_dir):
     seq_len = len(ana_objs[first_key].protein_sequence)
     num_len = int(np.ceil(seq_len / 150))
 
-    fig, ax = plt.subplots(1, 1, figsize=(40*num_len, 8), sharey=True, sharex=True)
+    fig, ax = plt.subplots(1, 1, figsize=(40 * num_len, 8), sharey=True, sharex=True)
 
     state_keys = list(ana_objs.keys())
-    
+
     for idx, (state_key, ana_obj) in enumerate(ana_objs.items()):
         state_name = get_display_state_name(state_key, state_keys)
         ana_obj.plot_kex_bar(
-            ax=ax, resolution_indicator_pos=15-idx, label=state_name, show_seq=False,
+            ax=ax,
+            resolution_indicator_pos=15 - idx,
+            label=state_name,
+            show_seq=False,
         )
-    
+
     ax.set_xlabel("Residue", fontsize=24)
-    
+
     spacing = int(seq_len // 150 * 1 + 1)
     ax.set_xticks(ax.get_xticks()[::spacing])
     ax.set_xticklabels(ax.get_xticklabels(), fontdict={"fontsize": 24})
     seq_pos = 17
     for ii in range(0, seq_len, spacing):
         ax.text(ii, seq_pos, ana_objs[first_key].protein_sequence[ii], ha="center", va="center", fontsize=22)
-        
+
     from matplotlib.colors import Normalize
     from matplotlib import cm
+
     coverage_max = np.nanmax(ana_objs[first_key].coverage)
     norm = Normalize(vmin=0, vmax=coverage_max)
     sm = cm.ScalarMappable(cmap=plt.cm.Blues, norm=norm)
@@ -381,24 +383,19 @@ def get_log_kex_plot(ana_objs, output_dir):
     xlim = ax.get_xlim()
     last_residue_fig_pos = ax_pos.x0 + (last_residue_pos - xlim[0]) / (xlim[1] - xlim[0]) * ax_pos.width
     x_pos = last_residue_fig_pos - (cbar_width_inch / fig_width_inch)
-    cbar_ax = fig.add_axes([
-        x_pos,
-        0.7,
-        cbar_width_inch / fig_width_inch,
-        cbar_height_inch / fig_height_inch
-    ])
-    cbar = fig.colorbar(sm, cax=cbar_ax, orientation='horizontal')
-    cbar.set_label('Coverage', fontsize=18, rotation=0)
+    cbar_ax = fig.add_axes([x_pos, 0.7, cbar_width_inch / fig_width_inch, cbar_height_inch / fig_height_inch])
+    cbar = fig.colorbar(sm, cax=cbar_ax, orientation="horizontal")
+    cbar.set_label("Coverage", fontsize=18, rotation=0)
     cbar.set_ticks([0, coverage_max])
-    cbar.set_ticklabels(['0', f'{int(coverage_max)}'])
+    cbar.set_ticklabels(["0", f"{int(coverage_max)}"])
     cbar.ax.tick_params(labelsize=18)
     cbar.outline.set_visible(False)
-    
-    ax.legend(loc='upper left', bbox_to_anchor=(0.01, 0.7))
+
+    ax.legend(loc="upper left", bbox_to_anchor=(0.01, 0.7))
 
     fig.savefig(f"{output_dir}/pfnet_plots/log_kex_plot.png")
     plt.close()
-    
+
     return f"{output_dir}/pfnet_plots/log_kex_plot.png"
 
 
@@ -408,40 +405,53 @@ def create_heatmap_compare(compare, colorbar_max, colormap="RdBu"):
     from matplotlib.patches import Rectangle
     from matplotlib import cm
     import matplotlib.pyplot as plt
-    from matplotlib import rcParams
 
     if not compare.peptide_compares or len(compare.peptide_compares) == 0:
         fig, ax = plt.subplots(figsize=(20, 10))
-        ax.text(0.5, 0.5, 'No peptide comparison data available', 
-                ha='center', va='center', transform=ax.transAxes, fontsize=16)
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        plt.close()
-        return fig
-        
-    if not compare.peptide_compares[0].peptide1_list or len(compare.peptide_compares[0].peptide1_list) == 0:
-        fig, ax = plt.subplots(figsize=(20, 10))
-        ax.text(0.5, 0.5, 'No peptide data available for comparison', 
-                ha='center', va='center', transform=ax.transAxes, fontsize=16)
+        ax.text(
+            0.5,
+            0.5,
+            "No peptide comparison data available",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=16,
+        )
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         plt.close()
         return fig
 
-    with plt.style.context('default'):
+    if not compare.peptide_compares[0].peptide1_list or len(compare.peptide_compares[0].peptide1_list) == 0:
+        fig, ax = plt.subplots(figsize=(20, 10))
+        ax.text(
+            0.5,
+            0.5,
+            "No peptide data available for comparison",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
+            fontsize=16,
+        )
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        plt.close()
+        return fig
+
+    with plt.style.context("default"):
         font_config = {"family": "Arial", "weight": "normal", "size": 14}
         axes_config = {"titlesize": 18, "titleweight": "bold", "labelsize": 16}
-        
+
         fig, ax = plt.subplots(figsize=(20, 10))
-        
+
         ax.tick_params(labelsize=font_config["size"])
         ax.set_title(
             compare.state1_list[0].state_name + "-" + compare.state2_list[0].state_name,
             fontsize=axes_config["titlesize"],
             fontweight=axes_config["titleweight"],
-            fontfamily=font_config["family"]
+            fontfamily=font_config["family"],
         )
-        
+
         colormap = cm.get_cmap(colormap)
 
         leftbound = compare.peptide_compares[0].peptide1_list[0].start - 10
@@ -466,8 +476,8 @@ def create_heatmap_compare(compare, colorbar_max, colormap="RdBu"):
 
         cbar = fig.colorbar(cm.ScalarMappable(cmap=colormap, norm=norm), ax=ax)
         cbar.ax.tick_params(labelsize=axes_config["labelsize"])
-        cbar.set_label('Deuteration difference (%)', fontsize=18, fontfamily="Arial")
-        ax.set_xlabel('Residue', fontsize=18, fontfamily="Arial")
+        cbar.set_label("Deuteration difference (%)", fontsize=18, fontfamily="Arial")
+        ax.set_xlabel("Residue", fontsize=18, fontfamily="Arial")
 
         fig.tight_layout()
         plt.close()
@@ -479,38 +489,32 @@ def create_heatmap_single_state(hdxms_datas, colorbar_max, colormap="Greens"):
     """Create heatmap for single state."""
     import matplotlib.colors as col
     from matplotlib.patches import Rectangle
-    from matplotlib import colormaps
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
-    import seaborn as sns
 
-    state_name = list(
-        set([state.state_name for data in hdxms_datas for state in data.states])
-    )
+    state_name = list(set([state.state_name for data in hdxms_datas for state in data.states]))
     if len(state_name) > 1:
         raise ValueError("More than one state name found")
     else:
         state_name = state_name[0]
 
-    with plt.style.context('default'):
+    with plt.style.context("default"):
         font_config = {"family": "Arial", "weight": "normal", "size": 14}
         axes_config = {"titlesize": 18, "titleweight": "bold", "labelsize": 16}
-        
+
         fig, ax = plt.subplots(1, 1, figsize=(20, 10))
-        
+
         ax.tick_params(labelsize=font_config["size"])
         ax.set_title(
             state_name,
-            fontsize=axes_config["titlesize"], 
+            fontsize=axes_config["titlesize"],
             fontweight=axes_config["titleweight"],
-            fontfamily=font_config["family"]
+            fontfamily=font_config["family"],
         )
 
         colormap = sns.light_palette("seagreen", as_cmap=True)
 
-        all_peptides = [
-            pep for data in hdxms_datas for state in data.states for pep in state.peptides
-        ]
+        all_peptides = [pep for data in hdxms_datas for state in data.states for pep in state.peptides]
         all_peptides.sort(key=lambda x: x.start)
 
         leftbound = all_peptides[0].start - 10
@@ -524,9 +528,7 @@ def create_heatmap_single_state(hdxms_datas, colorbar_max, colormap="Greens"):
         norm = col.Normalize(vmin=0, vmax=colorbar_max)
 
         for i, peptide in enumerate(all_peptides):
-            avg_d_percent = np.average(
-                [tp.d_percent for tp in peptide.timepoints if tp.deut_time != np.inf]
-            )
+            avg_d_percent = np.average([tp.d_percent for tp in peptide.timepoints if tp.deut_time != np.inf])
             rect = Rectangle(
                 (peptide.start, (i % 20) * 5 + ((i // 20) % 2) * 2.5),
                 peptide.end - peptide.start,
@@ -541,21 +543,17 @@ def create_heatmap_single_state(hdxms_datas, colorbar_max, colormap="Greens"):
             coverage[pep.start - 1 : pep.end] += 1
         height = 3
         for i in range(len(coverage)):
-            color_intensity = (
-                coverage[i] / 20
-            )  # coverage.max()  # Normalizing the data for color intensity
-            rect = patches.Rectangle(
-                (i, 105), 1, height, color=plt.cm.Blues(color_intensity)
-            )
+            color_intensity = coverage[i] / 20  # coverage.max()  # Normalizing the data for color intensity
+            rect = patches.Rectangle((i, 105), 1, height, color=plt.cm.Blues(color_intensity))
             ax.add_patch(rect)
 
         from matplotlib import cm
-        
+
         cbar = fig.colorbar(cm.ScalarMappable(cmap=colormap, norm=norm), ax=ax)
         cbar.ax.tick_params(labelsize=axes_config["labelsize"])
-        cbar.set_label('Deuteration (%)', fontsize=18, fontfamily="Arial")
-        
-        ax.set_xlabel('Residue', fontsize=18, fontfamily="Arial")
+        cbar.set_label("Deuteration (%)", fontsize=18, fontfamily="Arial")
+
+        ax.set_xlabel("Residue", fontsize=18, fontfamily="Arial")
 
         fig.tight_layout()
         plt.close()
@@ -566,32 +564,31 @@ def create_heatmap_single_state(hdxms_datas, colorbar_max, colormap="Greens"):
 def get_heatmap(hdxms_data_list, output_dir):
     """Generate heatmaps for single or multiple states."""
     all_state_names = [state.state_name for data in hdxms_data_list for state in data.states]
-    
+
     if len(hdxms_data_list) == 1:
         fig = create_heatmap_single_state(hdxms_data_list, colorbar_max=80)
         fig.savefig(f"{output_dir}/pfnet_plots/heatmap_{all_state_names[0]}.png")
     else:
-        from itertools import product
         from pigeon_feather.data import HDXStatePeptideCompares
 
         if len(hdxms_data_list) >= 2:
             state1_name = hdxms_data_list[0].states[0].state_name
             state2_name = hdxms_data_list[1].states[0].state_name
-            
+
             state1_list = [hdxms_data_list[0].states[0]]
             state2_list = [hdxms_data_list[1].states[0]]
 
             compare = HDXStatePeptideCompares(state1_list, state2_list)
             compare.add_all_compare()
-    
+
             if len(compare.peptide_compares) > 0:
                 heatmap_compare = create_heatmap_compare(compare, 20)
-                heatmap_compare.savefig(f'{output_dir}/pfnet_plots/heatmap_{state1_name}_{state2_name}.png')
+                heatmap_compare.savefig(f"{output_dir}/pfnet_plots/heatmap_{state1_name}_{state2_name}.png")
             else:
                 print("Warning: No valid peptide comparisons found for heatmap generation")
-    
+
     heatmaps = glob.glob(f"{output_dir}/pfnet_plots/heatmap_*.png")
-    
+
     return heatmaps
 
 
@@ -614,18 +611,18 @@ def create_logP_df(ana_obj, index_offset, pfnet_confidence):
             {
                 "resid": [res_obj_i.resid - index_offset],
                 "resname": [res_obj_i.resname],
-                'avg_dG (kJ/mol)': [round(logPF_to_deltaG(ana_obj, avg_logP), 3)],
-                'std_dG (kJ/mol)': [round(logPF_to_deltaG(ana_obj, std_logP), 3)],
+                "avg_dG (kJ/mol)": [round(logPF_to_deltaG(ana_obj, avg_logP), 3)],
+                "std_dG (kJ/mol)": [round(logPF_to_deltaG(ana_obj, std_logP), 3)],
                 "avg_logP (log(sec^-1))": [round(avg_logP, 3)],
                 "std_logP (log(sec^-1))": [round(std_logP, 3)],
                 "log_kch (log(sec^-1))": [round(res_obj_i.log_k_init, 3)],
-                "log_kex (log(sec^-1))":  [round(log_kex, 3)],
+                "log_kex (log(sec^-1))": [round(log_kex, 3)],
                 "is_nan": [res_obj_i.is_nan()],
                 "coverage": [ana_obj.coverage[res_i]],
-                "PFNet_confidence": [float(pfnet_confidence[res_i])]
+                "PFNet_confidence": [float(pfnet_confidence[res_i])],
             }
         )
-        
+
         if res_obj_i.is_nan():
             df_i["single_resolved"] = [np.nan]
             df_i["min_pep logPs"] = [np.nan]
@@ -633,11 +630,11 @@ def create_logP_df(ana_obj, index_offset, pfnet_confidence):
         else:
             df_i["single_resolved"] = [res_obj_i.mini_pep.if_single_residue()]
             df_i["min_pep logPs"] = [np.round(res_obj_i.clustering_results_logP, 3)]
-            df_i["min_pep log_kex"] = [-1*np.round(res_obj_i.mini_pep.clustering_results_log_kex, 3)]
-            
+            df_i["min_pep log_kex"] = [-1 * np.round(res_obj_i.mini_pep.clustering_results_log_kex, 3)]
+
         df_logPF = pd.concat([df_logPF, df_i])
-        df_logPF['is_nan'] = df_logPF['is_nan'].astype(bool)
-        df_logPF['single_resolved'] = df_logPF['single_resolved'].astype(bool)
+        df_logPF["is_nan"] = df_logPF["is_nan"].astype(bool)
+        df_logPF["single_resolved"] = df_logPF["single_resolved"].astype(bool)
 
     df_logPF = df_logPF.reset_index(drop=True)
 
@@ -659,9 +656,9 @@ def get_csv_results(ana_objs, output_dicts, output_dir):
 def make_BFactorPlot(pdb_file, ana_objs, output_dir):
     """Generate BFactor plot for PDB visualization."""
     from pfnet.plot import BFactorPlot
-    
+
     state_keys = list(ana_objs.keys())
-    
+
     if len(state_keys) == 1:
         first_ana_obj = list(ana_objs.values())[0]
         bfactor_plot = BFactorPlot(
@@ -681,10 +678,10 @@ def make_BFactorPlot(pdb_file, ana_objs, output_dir):
             plot_deltaG=True,
             temperature=float(ana_obj_list[0].temperature),
         )
-        
+
         file_state_name_0 = get_display_state_name(state_keys[0], state_keys)
         file_state_name_1 = get_display_state_name(state_keys[1], state_keys)
-            
+
         dg_pdb_path = f"{output_dir}/pfnet_plots/PFNet_ddG_{file_state_name_0}-{file_state_name_1}.pdb"
         bfactor_plot.plot(dg_pdb_path)
 
@@ -699,41 +696,41 @@ def get_summary(output_dicts, hdxms_data_list, output_dir):
     for idx, state_name in enumerate(state_names):
         state_key = f"{state_name}_{idx}"
         results = output_dicts[state_key]["results"]
-        
+
         stats_text = get_all_statics_info([hdxms_data_list[idx]])
         SUMMARY += stats_text
-        
-        SUMMARY += "\n"*2
-        
+
+        SUMMARY += "\n" * 2
+
         PFNET_HEADER = "=" * 60 + "\n" + " " * 20 + f"PFNet Results Summary for {state_name} \n" + "=" * 60 + "\n"
         SUMMARY += PFNET_HEADER
-        
-        single_num = sum(np.array(results['resolution_limits'])[:,0] == np.array(results['resolution_limits'])[:,1])
-        
-        non_covered_residues = (torch.tensor(results['resolution_grouping']) == torch.tensor([1, 0, 0, 0])).all(axis=1)
+
+        single_num = sum(np.array(results["resolution_limits"])[:, 0] == np.array(results["resolution_limits"])[:, 1])
+
+        non_covered_residues = (torch.tensor(results["resolution_grouping"]) == torch.tensor([1, 0, 0, 0])).all(axis=1)
         non_covered_residues_num = non_covered_residues.sum().item()
-        covered_residues_num = len(results['protein_sequence']) - non_covered_residues_num
+        covered_residues_num = len(results["protein_sequence"]) - non_covered_residues_num
 
         seq_mask = results["seq_mask"]
         highest_log_kex = torch.max(results["pfnet_pred_log_kex"][~seq_mask])
         lowest_log_kex = torch.min(results["pfnet_pred_log_kex"][~seq_mask])
         std_log_kex = torch.std(results["pfnet_pred_log_kex"][~seq_mask])
-        
+
         high_confidence_residues = results["pfnet_pred_log_kex_confidence"] > 0.8
         high_confidence_residues_num = high_confidence_residues.sum().item()
-        
+
         text = f"Highest log(kex) (PFNet): {highest_log_kex:.2f}\nLowest log(kex) (PFNet): {lowest_log_kex:.2f}\n"
         text += f"Std log(kex) (PFNet): {std_log_kex:.2f}\n"
         SUMMARY += text + "\n"
-        
+
         SUMMARY += f"Number of single resolved residues: {single_num}\n"
         SUMMARY += f"Number of non covered residues: {non_covered_residues_num}\n"
-        SUMMARY += f"Number of high confidence residues: {high_confidence_residues_num} ({high_confidence_residues_num/covered_residues_num*100:.2f}%)\n"
+        SUMMARY += f"Number of high confidence residues: {high_confidence_residues_num} ({high_confidence_residues_num / covered_residues_num * 100:.2f}%)\n"
         SUMMARY += f"AE_mean_pfnet: {results['AE_mean_pfnet']:.2f}\n"
         SUMMARY += f"AE_median_pfnet: {results['AE_median_pfnet']:.2f}\n"
         SUMMARY += f"centroid model: {results['centroid_model']}\n"
-        
-        SUMMARY += "=" * 60 + "\n"*2
+
+        SUMMARY += "=" * 60 + "\n" * 2
 
     if hdxms_data_list:
         try:
@@ -753,10 +750,7 @@ def get_summary(output_dicts, hdxms_data_list, output_dir):
             SUMMARY += "=" * 60 + "\n"
             display_df = noise_summary[display_cols].copy()
             display_df["noise_level"] = display_df["noise_level"].map(lambda x: f"{x:.2f}")
-            col_widths = {
-                col: max(len(col), display_df[col].astype(str).map(len).max())
-                for col in display_cols
-            }
+            col_widths = {col: max(len(col), display_df[col].astype(str).map(len).max()) for col in display_cols}
             header = "  ".join(f"{col:<{col_widths[col]}}" for col in display_cols)
             rows = [
                 "  ".join(f"{str(row[col]):<{col_widths[col]}}" for col in display_cols)
@@ -764,18 +758,18 @@ def get_summary(output_dicts, hdxms_data_list, output_dir):
             ]
             SUMMARY += header + "\n" + "\n".join(rows) + "\n\n"
             SUMMARY += f"Estimated noise_level: {best_noise_level:.3f}"
-            SUMMARY += "\n" + "=" * 60 + "\n"*2
+            SUMMARY += "\n" + "=" * 60 + "\n" * 2
         except Exception as e:
             SUMMARY += "=" * 60 + "\n"
             SUMMARY += " " * 18 + "Noise Level Estimation\n"
             SUMMARY += "=" * 60 + "\n"
             SUMMARY += f"Noise estimation skipped due to error: {e}"
-            SUMMARY += "=" * 60 + "\n"*2
-        
+            SUMMARY += "=" * 60 + "\n" * 2
+
     summary_path = f"{output_dir}/summary.txt"
-    with open(summary_path, 'w') as f:
+    with open(summary_path, "w") as f:
         f.write(SUMMARY)
-        
+
     return SUMMARY, summary_path
 
 
@@ -796,5 +790,5 @@ def load_pdb_data(pdb_id, pdb_file):
     elif pdb_file:
         pdb_path = pdb_file
         print(f"Using PDB file: {pdb_path}")
-    
+
     return pdb_path

@@ -12,16 +12,16 @@ import glob
 import signal
 from contextlib import contextmanager
 from pfnet.model import AminoAcidEncoder
-import numpy as np
-from scipy.optimize import brentq 
+from scipy.optimize import brentq
 from hdxrate import k_int_from_sequence
 from collections import defaultdict
-import math 
+from functools import lru_cache
+
 
 class HDXDataset(Dataset):
-
-    def __init__(self, input, data_start_idx=0, data_end_idx=10, centroid_data=False, iso_env_peaks=50, permutate_tps=False):
-
+    def __init__(
+        self, input, data_start_idx=0, data_end_idx=10, centroid_data=False, iso_env_peaks=50, permutate_tps=False
+    ):
         self.cache = {}
         self.centroid_data = centroid_data
         self.iso_env_peaks = iso_env_peaks
@@ -51,7 +51,6 @@ class HDXDataset(Dataset):
         return len(self.files)
 
     def __getitem__(self, idx):
-
         if idx in self.cache:
             data_dict = self.cache[idx]
         else:
@@ -154,7 +153,6 @@ class HDXDataset(Dataset):
 
 
 class OnlineHDXDataset(Dataset):
-
     def __init__(
         self,
         data_start_idx=0,
@@ -165,7 +163,7 @@ class OnlineHDXDataset(Dataset):
         length_range=(100, 400),
         generate_miss_id=False,
         iso_env_peaks=50,
-        centroid_data=False
+        centroid_data=False,
     ):
         self.data_start_idx = data_start_idx
         self.data_end_idx = data_end_idx
@@ -185,18 +183,29 @@ class OnlineHDXDataset(Dataset):
     def _generate_data(self, i):
         try:
             with timeout(30):
-                return generate_single_data(i, self.base_seed, length_range=self.length_range, noise_level=self.noise_level, centroid_data=self.centroid_data)
+                return generate_single_data(
+                    i,
+                    self.base_seed,
+                    length_range=self.length_range,
+                    noise_level=self.noise_level,
+                    centroid_data=self.centroid_data,
+                )
         except ValueError:
             for j in range(200):
                 try:
                     with timeout(10):
-                        return generate_single_data(j, 0, length_range=self.length_range, noise_level=self.noise_level, centroid_data=self.centroid_data)
+                        return generate_single_data(
+                            j,
+                            0,
+                            length_range=self.length_range,
+                            noise_level=self.noise_level,
+                            centroid_data=self.centroid_data,
+                        )
                 except ValueError:
                     continue  # try next
             raise ValueError(f"Generating data failed for index {i}")
 
     def __getitem__(self, idx):
-
         idx = self.idxs[idx]
 
         if idx in self.cache:
@@ -296,7 +305,6 @@ class OnlineHDXDataset(Dataset):
 
 
 class PFNetSimulatedData(SimulatedData):
-
     def __init__(
         self,
         length=100,
@@ -311,7 +319,6 @@ class PFNetSimulatedData(SimulatedData):
         logP_range=(2, 12),
         iso_env_peaks=50,
     ):
-
         super().__init__()
         self.seed = seed
         random.seed(seed)
@@ -334,23 +341,22 @@ class PFNetSimulatedData(SimulatedData):
         self.temperature = temperature
         self.pH = pH
         self.iso_env_peaks = iso_env_peaks
-        
-    def cal_k_ex(self):
-        'calculate exchange rate for each residue'
-        self.log_k_ex = self.log_k_init - self.logP
-        self.log_k_ex[self.log_k_ex==np.inf] = 100
 
+    def cal_k_ex(self):
+        "calculate exchange rate for each residue"
+        self.log_k_ex = self.log_k_init - self.logP
+        self.log_k_ex[self.log_k_ex == np.inf] = 100
 
     def gen_peptides_simple(self, min_len=5, max_len=12, num_peptides=30):
-        'generate random peptides from the protein sequence without complex restraints on the coverage'
+        "generate random peptides from the protein sequence without complex restraints on the coverage"
         random.seed(self.seed)
         sequence_length = len(self.sequence)
         peptides = []
-        
+
         # Generate peptides until we have the required number
         attempt = 0
         max_attempts = num_peptides * 100  # prevent infinite loop
-        
+
         while len(peptides) < num_peptides and attempt < max_attempts:
             # Random start position
             start = random.randint(0, sequence_length - min_len)
@@ -358,30 +364,36 @@ class PFNetSimulatedData(SimulatedData):
             pep_len = random.randint(min_len, max_len)
             # Ensure we don't exceed sequence length
             end = min(start + pep_len, sequence_length)
-            
+
             peptide = self.sequence[start:end]
-            
+
             # Only add peptides with valid length and avoid duplicates
             if len(peptide) >= min_len and peptide not in peptides:
                 peptides.append(peptide)
-            
+
             attempt += 1
-        
+
         # Sort peptides by their position in the sequence
         self.peptides = sorted(peptides, key=lambda x: self.sequence.find(x))
 
     def convert_to_hdxms_data(self, centroid_data=False):
-        'convert the simulated data to a HDXMSData object'
-        
-        hdxms_data = HDXMSData("simulated_data", protein_sequence=self.sequence, saturation=self.saturation, temperature=self.temperature, pH=self.pH)
+        "convert the simulated data to a HDXMSData object"
+
+        hdxms_data = HDXMSData(
+            "simulated_data",
+            protein_sequence=self.sequence,
+            saturation=self.saturation,
+            temperature=self.temperature,
+            pH=self.pH,
+        )
         protein_state = ProteinState("SIM", hdxms_data=hdxms_data)
         hdxms_data.add_state(protein_state)
 
         # calculate incorporation
         self.calculate_incorporation()
-        
+
         back_ex_dict = {}
-        
+
         for peptide in self.peptides:
             start = self.sequence.find(peptide) + 1
             end = start + len(peptide) - 1
@@ -391,56 +403,66 @@ class PFNetSimulatedData(SimulatedData):
             if self.random_backexchange:
                 if peptide_obj.identifier in back_ex_dict:
                     true_back_exchange = back_ex_dict[peptide_obj.identifier]
-                    noised_back_exchange = np.clip(true_back_exchange + np.random.normal(0.0, self.noise_level/5), 0.0, 0.8)
-                    _add_max_d_to_pep(peptide_obj, max_d=(1-noised_back_exchange)*peptide_obj.theo_max_d)
-                    peptide_obj.true_max_d = (1-true_back_exchange)*peptide_obj.theo_max_d
+                    noised_back_exchange = np.clip(
+                        true_back_exchange + np.random.normal(0.0, self.noise_level / 5), 0.0, 0.8
+                    )
+                    _add_max_d_to_pep(peptide_obj, max_d=(1 - noised_back_exchange) * peptide_obj.theo_max_d)
+                    peptide_obj.true_max_d = (1 - true_back_exchange) * peptide_obj.theo_max_d
                 else:
                     true_back_exchange = random.uniform(0.0, 0.8)
-                    noised_back_exchange = np.clip(true_back_exchange + np.random.normal(0.0, self.noise_level/5), 0.0, 0.8)
-                    _add_max_d_to_pep(peptide_obj, max_d=(1-noised_back_exchange)*peptide_obj.theo_max_d)
+                    noised_back_exchange = np.clip(
+                        true_back_exchange + np.random.normal(0.0, self.noise_level / 5), 0.0, 0.8
+                    )
+                    _add_max_d_to_pep(peptide_obj, max_d=(1 - noised_back_exchange) * peptide_obj.theo_max_d)
                     back_ex_dict[peptide_obj.identifier] = true_back_exchange
-                    peptide_obj.true_max_d = (1-true_back_exchange)*peptide_obj.theo_max_d
+                    peptide_obj.true_max_d = (1 - true_back_exchange) * peptide_obj.theo_max_d
             else:
                 true_back_exchange = 0.0
-  
-            _, noised_deut_rent = estimate_deut_rent(peptide_obj, T=273.15, pH=2.3, quench_saturation=0.455, if_true_max_d=False)
-            _, true_deut_rent = estimate_deut_rent(peptide_obj, T=273.15, pH=2.3, quench_saturation=0.455, if_true_max_d=True)
+
+            _, noised_deut_rent = estimate_deut_rent(
+                peptide_obj, T=273.15, pH=2.3, quench_saturation=0.455, if_true_max_d=False
+            )
+            _, true_deut_rent = estimate_deut_rent(
+                peptide_obj, T=273.15, pH=2.3, quench_saturation=0.455, if_true_max_d=True
+            )
             peptide_obj.deut_rent = noised_deut_rent
-            #peptide_obj.deut_rent = true_deut_rent
+            # peptide_obj.deut_rent = true_deut_rent
 
             try:
                 protein_state.add_peptide(peptide_obj, allow_duplicate=True)
-                
+
                 # make sure 0 timepoint is included and is the first timepoint
                 if self.drop_timepoints:
                     timepoints = self.timepoints.copy()
-                    timepoints = random.sample(list(timepoints), k=int(0.8*len(timepoints)))
+                    timepoints = random.sample(list(timepoints), k=int(0.8 * len(timepoints)))
                 else:
                     timepoints = self.timepoints.copy()
-                
+
                 if 0 not in timepoints:
                     timepoints = np.insert(timepoints, 0, 0)
-                    
+
                 # sort timepoints
                 timepoints.sort()
-                
+
                 noise_multiplier = 1.0
                 # pep_length = peptide_obj.end - peptide_obj.start + 1
                 # if (pep_length <= 5 or pep_length >= 15) and random.uniform(0, 1) < 0.3:
                 #     noise_multiplier = 1.1
-                            
+
                 for tp_i, tp in enumerate(timepoints):
                     # tp_raw_deut = self.incorporations[
                     #     peptide_obj.start - 1 : peptide_obj.end
                     # ][:, tp_i]
-                    #tp_raw_deut = self.incorporations[tp][peptide_obj.start - 1 : peptide_obj.end]
-                    tp_raw_deut = self.incorporations[tp][peptide_obj.start - 1 - peptide_obj.n_fastamides: peptide_obj.end]
-                    
-                    #add sidechain exchange noise, 5% of theo_max_d, only positive
+                    # tp_raw_deut = self.incorporations[tp][peptide_obj.start - 1 : peptide_obj.end]
+                    tp_raw_deut = self.incorporations[tp][
+                        peptide_obj.start - 1 - peptide_obj.n_fastamides : peptide_obj.end
+                    ]
+
+                    # add sidechain exchange noise, 5% of theo_max_d, only positive
                     if tp_i != 0 and random.uniform(0, 1) < 0.3:
-                        tp_raw_deut = tp_raw_deut + random.uniform(0, self.noise_level/10) 
-                    
-                    #tp_raw_deut = tp_raw_deut * (1 - true_back_exchange) * self.saturation
+                        tp_raw_deut = tp_raw_deut + random.uniform(0, self.noise_level / 10)
+
+                    # tp_raw_deut = tp_raw_deut * (1 - true_back_exchange) * self.saturation
                     # print(tp_raw_deut.shape, peptide_obj.deut_rent.shape)
                     tp_raw_deut = tp_raw_deut * true_deut_rent * self.saturation
                     pep_incorp = sum(tp_raw_deut)
@@ -452,15 +474,15 @@ class PFNetSimulatedData(SimulatedData):
                         pep_incorp + random_stddev,
                         random_stddev,
                     )
-                    
+
                     if centroid_data:
                         tp_obj.isotope_envelope = np.zeros(30)
                         peptide_obj.add_timepoint(tp_obj)
                         continue
-                    
+
                     if tp == 0.0:
                         t0_theo = get_theoretical_isotope_distribution(tp_obj)[1]
-                        
+
                     p_D = event_probabilities(tp_raw_deut)
 
                     isotope_envelope = np.convolve(t0_theo, p_D)
@@ -472,20 +494,26 @@ class PFNetSimulatedData(SimulatedData):
                     # )
                     isotope_noise = np.array(
                         [
-                            random.uniform(-1, 1) * self.noise_level/10 +  random.uniform(-1, 1) * self.noise_level * peak 
+                            random.uniform(-1, 1) * self.noise_level / 10
+                            + random.uniform(-1, 1) * self.noise_level * peak
                             for peak in isotope_envelope
                         ]
                     )
-                    
+
                     if tp_i != 0:
-                        isotope_noise += np.array([random.uniform(-1, 1) * self.noise_level/10 * (np.log10(tp)/18) for _ in isotope_envelope])
-                    
+                        isotope_noise += np.array(
+                            [
+                                random.uniform(-1, 1) * self.noise_level / 10 * (np.log10(tp) / 18)
+                                for _ in isotope_envelope
+                            ]
+                        )
+
                     isotope_envelope = isotope_envelope + isotope_noise * noise_multiplier
                     isotope_envelope[isotope_envelope < 0] = 0
                     isotope_envelope = normlize(isotope_envelope)
-                    
+
                     tp_obj.isotope_envelope = isotope_envelope
-                     
+
                     # update num_d
                     mass_num = np.arange(len(isotope_envelope))
                     if tp_i == 0:
@@ -498,15 +526,15 @@ class PFNetSimulatedData(SimulatedData):
             except Exception as e:
                 print(e)
                 continue
-            
-        #print(back_ex_dict)
+
+        # print(back_ex_dict)
 
         self.hdxms_data = hdxms_data
 
         # peptide_obj.add_timepoint(tp, self.incorporations[start:end])
 
-class UnionFind:
 
+class UnionFind:
     def __init__(self, n):
         self.parent = list(range(n))
         self.rank = [0] * n
@@ -600,14 +628,15 @@ def custom_collate_fn(batch):
     }
 
     # Create global vars tensor with sequence length and saturation
-    global_vars = torch.stack([torch.ones_like(saturation_stacked) * log_kex_padded.shape[1], saturation_stacked], dim=1)
+    global_vars = torch.stack(
+        [torch.ones_like(saturation_stacked) * log_kex_padded.shape[1], saturation_stacked], dim=1
+    )
 
     return peptide_data, residue_data, global_vars, log_kex_padded
 
 
 @contextmanager
 def timeout(seconds):
-
     def signal_handler(signum, frame):
         raise ValueError("Timed out!")
 
@@ -652,7 +681,6 @@ def generate_tps(min_num=6, max_num=12, lower_range=(0, 2), upper_range=(4, 6), 
 
 
 def get_resolution_grouping(input_data):
-
     def if_in_segment(resid, segment_tuple):
         if resid >= segment_tuple[0] and resid <= segment_tuple[1]:
             return 1
@@ -675,21 +703,20 @@ def get_resolution_grouping(input_data):
     binary_groupings = []
 
     for res_idx, res in enumerate(analysis.protein_sequence):
-
         resid = res_idx + 1
 
         if resid not in analysis.maximum_resolution_limits.keys():
-
             # binary_grouping = [if_empty, if_NC_term, if_in_before, if_in_after]
             binary_grouping = [1, 0, 0, 0]
 
-        elif resid - 1 not in analysis.maximum_resolution_limits.keys() or resid + 1 not in analysis.maximum_resolution_limits.keys():
-
+        elif (
+            resid - 1 not in analysis.maximum_resolution_limits.keys()
+            or resid + 1 not in analysis.maximum_resolution_limits.keys()
+        ):
             # binary_grouping = [if_empty, if_NC_term, if_in_before, if_in_after]
             binary_grouping = [0, 1, 0, 0]
 
         else:
-
             before_res = analysis.maximum_resolution_limits[resid - 1]
             # current_segment = analysis.maximum_resolution_limits[resid]
             after_res = analysis.maximum_resolution_limits[resid + 1]
@@ -703,15 +730,9 @@ def get_resolution_grouping(input_data):
     return resolution_limits, binary_groupings
 
 
-from hdxrate import k_int_from_sequence
-from pigeon_feather.tools import calculate_simple_deuterium_incorporation
-import numpy as np
-from scipy.optimize import brentq 
-from functools import lru_cache  
-
-@lru_cache(maxsize=500) 
+@lru_cache(maxsize=500)
 def get_full_theo_max_d(sequence, saturation):
-    'theoretical max deuterium incorporated in the peptide'
+    "theoretical max deuterium incorporated in the peptide"
     num_prolines = sequence.count("P")
     theo_max_d = len(sequence) - num_prolines
     return theo_max_d * saturation
@@ -724,26 +745,33 @@ def sim_data_to_grouped_dict(simulated_data):
     iso_env_peaks = simulated_data.iso_env_peaks
 
     for i, peptide in enumerate(all_peptides):
-
         pep_dict = {}
 
-        #pep_dict["start"] = peptide.start
+        # pep_dict["start"] = peptide.start
         pep_dict["start"] = peptide.start - peptide.n_fastamides
         pep_dict["end"] = peptide.end
         # pep_dict["sequence"] = peptide.sequence
-        pep_dict["sequence"] = peptide.identifier.split(' ')[1]
+        pep_dict["sequence"] = peptide.identifier.split(" ")[1]
         pep_dict["time"] = [tp.deut_time for tp in peptide.timepoints if tp.deut_time != np.inf]
         pep_dict["num_d"] = [tp.num_d for tp in peptide.timepoints if tp.deut_time != np.inf]
-        pep_dict["isotope"] = [custom_pad(tp.isotope_envelope[:iso_env_peaks], iso_env_peaks) for tp in peptide.timepoints if tp.deut_time != np.inf]
+        pep_dict["isotope"] = [
+            custom_pad(tp.isotope_envelope[:iso_env_peaks], iso_env_peaks)
+            for tp in peptide.timepoints
+            if tp.deut_time != np.inf
+        ]
         # t0 isotope envelope
-        pep_dict["t0_isotope"] = [custom_pad(peptide.get_timepoint(0).isotope_envelope[:iso_env_peaks], iso_env_peaks) for tp in peptide.timepoints if tp.deut_time != np.inf]
+        pep_dict["t0_isotope"] = [
+            custom_pad(peptide.get_timepoint(0).isotope_envelope[:iso_env_peaks], iso_env_peaks)
+            for tp in peptide.timepoints
+            if tp.deut_time != np.inf
+        ]
         pep_dict["max_d"] = peptide.max_d
         pep_dict["theo_max_d"] = peptide.theo_max_d
-        
+
         # estimate the deuterium retention based on the instrisic rate
         # backex_tp, deut_rent = estimate_deut_rent(peptide, T=273.15, pH=2.3, quench_saturation=0.455)
         # pep_dict["effective_deut_rent"] = custom_pad(deut_rent[:50], 50)
-        pep_dict["effective_deut_rent"] = custom_pad(peptide.deut_rent[:50], 50)    
+        pep_dict["effective_deut_rent"] = custom_pad(peptide.deut_rent[:50], 50)
 
         data_dict[f"peptide_{i}"] = pep_dict
 
@@ -765,9 +793,18 @@ def sim_data_to_grouped_dict(simulated_data):
 
 
 def generate_single_data(
-    i, base_seed=42, length=None, length_range=(100, 400), num_peptides=None, tps=None, logP_range=(2, 12), noise_level=None, output_dir=None, centroid_data=False, prefix=""
+    i,
+    base_seed=42,
+    length=None,
+    length_range=(100, 400),
+    num_peptides=None,
+    tps=None,
+    logP_range=(2, 12),
+    noise_level=None,
+    output_dir=None,
+    centroid_data=False,
+    prefix="",
 ):
-
     if output_dir is not None:
         output_path = os.path.join(output_dir, f"simdata{f'_{prefix}' if prefix else ''}_{i}.pt")
         if os.path.exists(output_path) and os.path.getsize(output_path) != 0:
@@ -779,7 +816,6 @@ def generate_single_data(
     torch.manual_seed(base_seed**5 + i)
 
     if tps is None:
-
         random_float = random.random()
         if random_float < 0.6:
             # normal tps
@@ -793,13 +829,13 @@ def generate_single_data(
         elif 0.85 <= random_float < 1.00:
             # long tps
             tps = generate_tps(min_num=12, max_num=14, lower_range=(0, 2), upper_range=(16, 18))
-        #tps = generate_tps(min_num=12, max_num=18, lower_range=(-6, -4), upper_range=(16, 18))
+        # tps = generate_tps(min_num=12, max_num=18, lower_range=(-6, -4), upper_range=(16, 18))
 
         # tps = generate_tps(min_num=6, max_num=12, lower_range=(0,2), upper_range=(4,6), noise_fraction=0.1)
 
     if length is None:
-       #length = random.randint(*length_range)
-       length = random.randint(20, 100)
+        # length = random.randint(*length_range)
+        length = random.randint(20, 100)
     if num_peptides is None:
         num_peptides = int(random.uniform(0.7, 1.3) * length)
     if noise_level is None:
@@ -901,7 +937,6 @@ def get_similar_mass_groups(protein_dataset, mz_threshold, group_replacement_cha
 
 
 def replace_peptides_with_miss_id(protein_dataset, mz_threshold, group_replacement_chance):
-
     mimic_dataset = dict(protein_dataset)
 
     groups_to_keep_after_chance = get_similar_mass_groups(protein_dataset, mz_threshold, group_replacement_chance)
@@ -913,16 +948,15 @@ def replace_peptides_with_miss_id(protein_dataset, mz_threshold, group_replaceme
     back_ex = mimic_dataset["back_ex"]
     deut_rent = mimic_dataset["effective_deut_rent"]
     miss_id_bool = torch.zeros_like(tp)
-    
+
     peptide_to_indices = defaultdict(list)
     for i, peptide_seq in enumerate(protein_dataset["sequence"]):
         peptide_to_indices[peptide_seq].append(i)
-    
 
     for group in groups_to_keep_after_chance:
         mimic = group[random.randint(0, len(group) - 1)]
         # Find all entries for the mimic peptide
-        #indexs_of_mimic = [i for i, x in enumerate(seq) if x == mimic]
+        # indexs_of_mimic = [i for i, x in enumerate(seq) if x == mimic]
         indexs_of_mimic = peptide_to_indices[mimic]
 
         # Collect timepoints, probabilities, back_ex
@@ -935,7 +969,7 @@ def replace_peptides_with_miss_id(protein_dataset, mz_threshold, group_replaceme
 
         # For the other peptides in the group
         for not_mimic in [x for x in group if x != mimic]:
-            #indexs_of_not_mimic = [i for i, x in enumerate(seq) if x == not_mimic]
+            # indexs_of_not_mimic = [i for i, x in enumerate(seq) if x == not_mimic]
             indexs_of_not_mimic = peptide_to_indices[not_mimic]
             for idx in indexs_of_not_mimic:
                 if float(tp[idx]) in unique_tp:
@@ -961,33 +995,33 @@ def replace_peptides_with_miss_id(protein_dataset, mz_threshold, group_replaceme
 
 
 def estimate_deut_rent(peptide, T=273.15, pH=2.3, quench_saturation=1, bounds=(0, 1e8), tol=0.1, if_true_max_d=True):
-    '''
+    """
     estimate the deuterium retention based on the instrisic rate
     input: peptide, a Peptide object
     output: tp, deut_rent, a tuple of the time point and the deuterium retention
-    '''
+    """
     # full seq
-        # saturation in exchange reaction
+    # saturation in exchange reaction
     saturation = peptide.protein_state.hdxms_data.saturation
-        
-    raw_seq = peptide.identifier.split(' ')[1]
-    res_duet = np.array([1 if aa != 'P' else 0 for aa in raw_seq])
+
+    raw_seq = peptide.identifier.split(" ")[1]
+    res_duet = np.array([1 if aa != "P" else 0 for aa in raw_seq])
 
     if if_true_max_d:
-        max_d = peptide.true_max_d 
+        max_d = peptide.true_max_d
     else:
-        max_d = peptide.max_d 
+        max_d = peptide.max_d
 
-    kk = k_int_from_sequence(raw_seq, T, pH, exchange_type='DH', d_percentage=quench_saturation*100)
-    kk[kk==np.inf] = 1e10
-    
+    kk = k_int_from_sequence(raw_seq, T, pH, exchange_type="DH", d_percentage=quench_saturation * 100)
+    kk[kk == np.inf] = 1e10
+
     def f(tt, res_duet):
         deut_rent = np.exp(-kk * tt)
-        calc_max_d = (deut_rent*res_duet).sum() * saturation
+        calc_max_d = (deut_rent * res_duet).sum() * saturation
         return calc_max_d - max_d
 
     backex_tp = brentq(f, *bounds, xtol=tol, args=(res_duet))
     deut_rent = np.exp(-kk * backex_tp)
-    deut_rent[res_duet==0] = 0.0
+    deut_rent[res_duet == 0] = 0.0
 
     return backex_tp, deut_rent

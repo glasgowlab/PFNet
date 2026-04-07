@@ -1,6 +1,3 @@
-import warnings
-
-warnings.filterwarnings("ignore", category=UserWarning, module="pyopenms")
 import torch
 from pfnet.model import PFNet, PFNetCentroid
 from pfnet.data import HDXDataset, custom_collate_fn
@@ -19,9 +16,10 @@ import numpy as np
 import json
 from pfnet.hxio import hxms_data_to_grouped_dict
 import math
-from copy import deepcopy
 import os
 import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning, module="pyopenms")
 
 
 def predict(
@@ -42,7 +40,7 @@ def predict(
 ):
     torch.set_grad_enabled(False)
     model_type = "centroid" if centroid_model else "envelope"
-    
+
     results_dict = {"results": {}, "analysis_objs": {}, "hdxms_data_objs": {}}
 
     # load model and data
@@ -51,7 +49,9 @@ def predict(
     results_dict["hdxms_data_objs"]["hdxms_data_expt"] = hdxms_data
 
     # run prediction
-    pred_log_kex, pred_confidence, _log_kex, pred_exp, obs_exp, seq_mask, _ = forward_chunked_batches(pfnet_model, batch, centroid_model=centroid_model)
+    pred_log_kex, pred_confidence, _log_kex, pred_exp, obs_exp, seq_mask, _ = forward_chunked_batches(
+        pfnet_model, batch, centroid_model=centroid_model
+    )
 
     results_dict["results"]["pfnet_pred_log_kex"] = pred_log_kex[0]
     results_dict["results"]["pfnet_pred_log_kex_confidence"] = pred_confidence[0]
@@ -61,46 +61,58 @@ def predict(
     # run analysis
     _log_kex_posterior_samples = pred_log_kex.repeat(1, 1).detach().cpu().numpy() * -1
     _log_kex_posterior_samples[:, seq_mask[0]] = np.nan
-    analysis_pfnet, posterior_mean_pfnet, posterior_std_pfnet = _create_analysis_obj(pfnet_model, hdxms_data, _log_kex_posterior_samples, pred_confidence[0], batch)
+    analysis_pfnet, posterior_mean_pfnet, posterior_std_pfnet = _create_analysis_obj(
+        pfnet_model, hdxms_data, _log_kex_posterior_samples, pred_confidence[0], batch
+    )
     results_dict["analysis_objs"]["analysis_pfnet"] = analysis_pfnet
     # add pAE to analysis_pfnet
-    pAE = np.log(results_dict["results"]["pfnet_pred_log_kex_confidence"])/-0.2
-    pSTD = pAE * np.sqrt(np.pi/2)
-    
+    pAE = np.log(results_dict["results"]["pfnet_pred_log_kex_confidence"]) / -0.2
+    pSTD = pAE * np.sqrt(np.pi / 2)
+
     for mini_pep in analysis_pfnet.results_obj.mini_peps:
         mini_pep.std_within_clusters_log_kex = np.array([])  # reset to empty array
-    
+
     for res_i in range(len(analysis_pfnet.results_obj.protein_sequence)):
         res_obj = analysis_pfnet.results_obj.get_residue_by_resindex(res_i)
         if not res_obj.is_nan():
             res_obj.mini_pep.std_within_clusters_log_kex = np.append(
-                res_obj.mini_pep.std_within_clusters_log_kex, 
-                pSTD[res_i]
+                res_obj.mini_pep.std_within_clusters_log_kex, pSTD[res_i]
             )
-        
+
     # get fit error
     pred_hdxms_data_pfnet, ae_pfnet = _get_AE(batch, dataset, posterior_mean_pfnet, centroid_model, seq_mask)
     pred_hdxms_data_pfnet.protein_name = "PFNet"
-    pred_hdxms_data_pfnet.states[0].state_name = "PFNet"  
+    pred_hdxms_data_pfnet.states[0].state_name = "PFNet"
     results_dict["hdxms_data_objs"]["hdxms_data_pfnet"] = pred_hdxms_data_pfnet
-    fit_error = {}        
+    fit_error = {}
     fit_error["ae_pfnet"] = ae_pfnet
 
     if refinement:
-        #raise ValueError("Refinement is not recommended!")
+        # raise ValueError("Refinement is not recommended!")
         # run refinement
         single_pos = pfnet_model.get_single_pos(batch)[0]
-        sampling_mask = ((single_pos) & (pred_confidence[0] > refine_single_pos_conf_threshold)) | ((~single_pos) & (pred_confidence[0] > refine_non_single_pos_conf_threshold))
-        
+        sampling_mask = ((single_pos) & (pred_confidence[0] > refine_single_pos_conf_threshold)) | (
+            (~single_pos) & (pred_confidence[0] > refine_non_single_pos_conf_threshold)
+        )
+
         posterior_samples, posterior_mean_refined, posterior_std_refined = run_empirical_bayesian(
-            refine_steps, refine_cen_sigma, refine_env_sigma, pred_log_kex, batch, seq_mask, centroid_model, device="cpu",
-            sampling_mask=sampling_mask
+            refine_steps,
+            refine_cen_sigma,
+            refine_env_sigma,
+            pred_log_kex,
+            batch,
+            seq_mask,
+            centroid_model,
+            device="cpu",
+            sampling_mask=sampling_mask,
         )
 
         # run analysis
         _log_kex_posterior_samples = np.array(posterior_samples["log_kex"]) * -1
         _log_kex_posterior_samples[:, seq_mask[0]] = np.nan
-        analysis_pfnet_refined, posterior_mean_refined, posterior_std_refined = _create_analysis_obj(pfnet_model, hdxms_data, _log_kex_posterior_samples, pred_confidence[0], batch)
+        analysis_pfnet_refined, posterior_mean_refined, posterior_std_refined = _create_analysis_obj(
+            pfnet_model, hdxms_data, _log_kex_posterior_samples, pred_confidence[0], batch
+        )
 
         results_dict["results"]["pfnet_posterior_log_kex_samples"] = _log_kex_posterior_samples
         results_dict["results"]["pfnet_posterior_log_kex_mean"] = posterior_mean_refined[0]
@@ -109,7 +121,9 @@ def predict(
         results_dict["analysis_objs"]["analysis_pfnet_refined"] = analysis_pfnet_refined
 
         # get fit error
-        pred_hdxms_data_refined, ae_pfnet_refined = _get_AE(batch, dataset, posterior_mean_refined, centroid_model, seq_mask)
+        pred_hdxms_data_refined, ae_pfnet_refined = _get_AE(
+            batch, dataset, posterior_mean_refined, centroid_model, seq_mask
+        )
         pred_hdxms_data_refined.protein_name = "PFNet+PF"
         pred_hdxms_data_refined.states[0].state_name = "PFNet+PF"
         results_dict["hdxms_data_objs"]["hdxms_data_pfnet_refined"] = pred_hdxms_data_refined
@@ -117,15 +131,19 @@ def predict(
 
     # add results to results_dict
     results_dict["results"]["protein_sequence"] = dataset[0]["protein_sequence"]
-    results_dict["results"]["temperature"] = np.array(dataset[0]["temperature"], dtype=np.float64).round(decimals=3).tolist()
+    results_dict["results"]["temperature"] = (
+        np.array(dataset[0]["temperature"], dtype=np.float64).round(decimals=3).tolist()
+    )
     results_dict["results"]["pH"] = np.array(dataset[0]["pH"], dtype=np.float64).round(decimals=3).tolist()
-    results_dict["results"]["saturation"] = np.array(dataset[0]["saturation"], dtype=np.float64).round(decimals=3).tolist()
+    results_dict["results"]["saturation"] = (
+        np.array(dataset[0]["saturation"], dtype=np.float64).round(decimals=3).tolist()
+    )
     results_dict["results"]["resolution_grouping"] = batch[1]["resolution_grouping"][0].detach().numpy().tolist()
     results_dict["results"]["resolution_limits"] = batch[1]["resolution_limits"][0].detach().numpy().tolist()
     results_dict["results"]["AE_mean_pfnet"] = float(f"{np.mean(ae_pfnet[model_type]):.3f}")
     results_dict["results"]["AE_median_pfnet"] = float(f"{np.median(ae_pfnet[model_type]):.3f}")
     results_dict["AE_pfnet"] = ae_pfnet
-    
+
     if refinement:
         results_dict["results"]["AE_mean_pfnet_refined"] = float(f"{np.mean(ae_pfnet_refined[model_type]):.3f}")
         results_dict["results"]["AE_median_pfnet_refined"] = float(f"{np.median(ae_pfnet_refined[model_type]):.3f}")
@@ -133,16 +151,15 @@ def predict(
         # get fit error
         pred_hdxms_data_benchmark, ae_pfnet_benchmark = _get_AE(batch, dataset, _log_kex, centroid_model, seq_mask)
         pred_hdxms_data_benchmark.protein_name = "PF"
-        pred_hdxms_data_benchmark.states[0].state_name = "PF" 
+        pred_hdxms_data_benchmark.states[0].state_name = "PF"
         results_dict["hdxms_data_objs"]["hdxms_data_pfnet_benchmark"] = pred_hdxms_data_benchmark
         fit_error["ae_pfnet_benchmark"] = ae_pfnet_benchmark
         # log the fit error
         results_dict["results"]["AE_mean_benchmark"] = float(f"{np.mean(ae_pfnet_benchmark[model_type]):.3f}")
         results_dict["results"]["AE_median_benchmark"] = float(f"{np.median(ae_pfnet_benchmark[model_type]):.3f}")
-    
+
     results_dict["results"]["centroid_model"] = centroid_model
-    
-    
+
     json_dict = {}
     for key, value in results_dict["results"].items():
         if isinstance(value, np.ndarray):
@@ -157,7 +174,7 @@ def predict(
     if output_json is not None:
         with open(output_json, "w") as f:
             json.dump(json_dict, f, indent=2, separators=(",", ": "), sort_keys=False, ensure_ascii=False)
-            
+
     if uptake_plots:
         print("plotting uptake plots")
         # generate plots
@@ -172,7 +189,7 @@ def _load_model(loaded_model, centroid_model):
         return loaded_model
 
     model_dir = os.path.join(os.path.dirname(__file__), "model_weights")
-    
+
     if centroid_model:
         print("loading PFNetCentroid model")
         checkpoint_path = os.path.join(model_dir, "PFNetCentroid.ckpt")
@@ -181,7 +198,7 @@ def _load_model(loaded_model, centroid_model):
         print("loading PFNet model")
         checkpoint_path = os.path.join(model_dir, "PFNet.ckpt")
         model = PFNet.load_from_checkpoint(checkpoint_path)
-    
+
     model.eval()
     model.to(device="cpu")
     return model
@@ -197,11 +214,12 @@ def _load_data(input, centroid_model):
         for state in hxms_data.states:
             state.state_name = "Expt."
         all_peptides = [peptide for state in hxms_data.states for peptide in state.peptides]
-        
+
         # back exchange estimation
         from pigeon_feather.tools import backexchange_correction
+
         backexchange_correction([hxms_data])
-        
+
         skip_peptides = []
         for peptide in all_peptides:
             if len(peptide.identifier.split(" ")[1]) > 50:
@@ -209,14 +227,14 @@ def _load_data(input, centroid_model):
                 continue
             try:
                 backex_tp, deut_rent = estimate_deut_rent(peptide, if_true_max_d=False)
-                peptide.deut_rent = deut_rent   
-            except Exception as e:
+                peptide.deut_rent = deut_rent
+            except Exception:
                 print("Error in estimate_deut_rent:", peptide.identifier)
                 print("max_d:", peptide.max_d, "theo_max_d:", peptide.theo_max_d)
                 skip_peptides.append(peptide.identifier)
         print(f"Skipping {len(skip_peptides)} peptides")
         hxms_data.states[0].peptides = [pep for pep in all_peptides if pep.identifier not in skip_peptides]
-        
+
         dataset = HDXDataset(hxms_data_to_grouped_dict(hxms_data), centroid_data=centroid_model)
     elif input.endswith(".pt"):
         dataset = HDXDataset(input, centroid_data=centroid_model)
@@ -245,7 +263,7 @@ def _create_analysis_obj(pfnet_model, hdxms_data, pred_log_kex_samples, pfnet_co
     posterior_mean = posterior_mean * -1
     posterior_mean[seq_mask] = -100
     posterior_std[seq_mask] = -100
-    
+
     # add confidence to analysis_pfnet
     for res_idx, res_obj in enumerate(analysis_pfnet.results_obj.residues):
         res_obj.pfnet_confidence = pfnet_confidence[res_idx]
@@ -270,33 +288,58 @@ def _generate_plots(hdxms_data_list, outdir, fit_error, centroid_model):
 
     import matplotlib.pyplot as plt
     import seaborn as sns
-    
+
     plot_models = ["centroid", "envelope"] if not centroid_model else ["centroid"]
 
     # plt.style.use("ggplot")
     colors = ["#43a2ca", "#2ca25f", "#756bb1", "#f768a1"]
-    
-    for plot_model in plot_models:
 
+    for plot_model in plot_models:
         fig, ax = plt.subplots(figsize=(5, 4))
-        sns.histplot(fit_error["ae_pfnet"][plot_model], bins=50, label="PFNet", ax=ax, alpha=0.5, binwidth=0.1, color=colors[0])
+        sns.histplot(
+            fit_error["ae_pfnet"][plot_model], bins=50, label="PFNet", ax=ax, alpha=0.5, binwidth=0.1, color=colors[0]
+        )
         if "ae_pfnet_benchmark" in fit_error:
-            sns.histplot(fit_error["ae_pfnet_benchmark"][plot_model], bins=50, label="PF", ax=ax, alpha=0.5, binwidth=0.1, color=colors[1])
+            sns.histplot(
+                fit_error["ae_pfnet_benchmark"][plot_model],
+                bins=50,
+                label="PF",
+                ax=ax,
+                alpha=0.5,
+                binwidth=0.1,
+                color=colors[1],
+            )
         if "ae_pfnet_refined" in fit_error:
-            sns.histplot(fit_error["ae_pfnet_refined"][plot_model], bins=50, label="PFNet+PF", ax=ax, alpha=0.5, binwidth=0.1, color=colors[2])
-        
+            sns.histplot(
+                fit_error["ae_pfnet_refined"][plot_model],
+                bins=50,
+                label="PFNet+PF",
+                ax=ax,
+                alpha=0.5,
+                binwidth=0.1,
+                color=colors[2],
+            )
+
         # annotate the mean and median
         ax.text(
-            0.7, 0.95,
+            0.7,
+            0.95,
             f"Median: {np.median(fit_error['ae_pfnet'][plot_model]):.3f}",
-            ha="left", va="top", transform=ax.transAxes, fontsize=10
+            ha="left",
+            va="top",
+            transform=ax.transAxes,
+            fontsize=10,
         )
         ax.text(
-            0.7, 0.88,
+            0.7,
+            0.88,
             f"Mean: {np.mean(fit_error['ae_pfnet'][plot_model]):.3f}",
-            ha="left", va="top", transform=ax.transAxes, fontsize=10
+            ha="left",
+            va="top",
+            transform=ax.transAxes,
+            fontsize=10,
         )
-        
+
         ax.legend(fontsize=12)
         ax.set_xlabel(f"AE ({plot_model})", fontsize=12)
         ax.set_ylabel("Count", fontsize=12)
@@ -307,19 +350,18 @@ def _generate_plots(hdxms_data_list, outdir, fit_error, centroid_model):
 
 
 def _get_AE(batch, dataset, pred_log_kex, centroid_model, seq_mask):
-    
     peptide_data, residue_data, global_vars, log_kex = batch
     start_pos = peptide_data["start_pos"]
     end_pos = peptide_data["end_pos"]
     time_points = peptide_data["time_point"]
-    #back_ex = peptide_data["back_ex"].unsqueeze(-1)
-    back_ex = 1-peptide_data["effective_deut_rent"]
+    # back_ex = peptide_data["back_ex"].unsqueeze(-1)
+    back_ex = 1 - peptide_data["effective_deut_rent"]
     saturation = global_vars[:, -1]
     t0_mask = peptide_data["time_point"] == 0
-    
+
     pred_log_kex_mask_inf = pred_log_kex.clone()
     pred_log_kex_mask_inf[seq_mask] = -float("inf")
-    
+
     ae_pfnet = {}
     if not centroid_model:
         obs_envelope = peptide_data["probabilities"]
@@ -332,18 +374,27 @@ def _get_AE(batch, dataset, pred_log_kex, centroid_model, seq_mask):
         pred_data_dict = {k: v for k, v in dataset[0].items() if k != "isotope_envelope"}
         pred_data_dict["isotope_envelope"] = pred_envelope[0]
         pred_hdxms_data = datadict_to_hdxmsdata(pred_data_dict, centroid_data=centroid_model)
-        ae_pfnet_envelope = (pred_envelope[~t0_mask] - obs_envelope[~t0_mask]).abs().sum(-1).flatten().detach().cpu().numpy()
-        
+        ae_pfnet_envelope = (
+            (pred_envelope[~t0_mask] - obs_envelope[~t0_mask]).abs().sum(-1).flatten().detach().cpu().numpy()
+        )
+
         ae_pfnet_centroid = (
-            pred_envelope[~t0_mask] @ torch.arange(50, dtype=pred_envelope.dtype, device=pred_envelope.device)
-            - obs_envelope[~t0_mask] @ torch.arange(50, dtype=obs_envelope.dtype, device=obs_envelope.device)
-        ).abs().flatten().detach().cpu().numpy()
-        
+            (
+                pred_envelope[~t0_mask] @ torch.arange(50, dtype=pred_envelope.dtype, device=pred_envelope.device)
+                - obs_envelope[~t0_mask] @ torch.arange(50, dtype=obs_envelope.dtype, device=obs_envelope.device)
+            )
+            .abs()
+            .flatten()
+            .detach()
+            .cpu()
+            .numpy()
+        )
+
         ae_pfnet["envelope"] = ae_pfnet_envelope
         ae_pfnet["centroid"] = ae_pfnet_centroid
     else:
         obs_num_d = peptide_data["num_d"]
-        
+
         pred_num_d = get_calculated_num_d(start_pos, end_pos, time_points, pred_log_kex_mask_inf, back_ex, saturation)
         pred_data_dict = {k: v for k, v in dataset[0].items() if k != "num_d"}
         pred_data_dict["num_d"] = pred_num_d[0]
@@ -354,9 +405,17 @@ def _get_AE(batch, dataset, pred_log_kex, centroid_model, seq_mask):
     return pred_hdxms_data, ae_pfnet
 
 
-
-def run_empirical_bayesian(refine_steps, refine_cen_sigma, refine_env_sigma, pfnet_pred, batch, seq_mask, centroid_model=False,sampling_mask=None, device="cpu"):
-
+def run_empirical_bayesian(
+    refine_steps,
+    refine_cen_sigma,
+    refine_env_sigma,
+    pfnet_pred,
+    batch,
+    seq_mask,
+    centroid_model=False,
+    sampling_mask=None,
+    device="cpu",
+):
     feather_input_batch = deepcopy(batch)
     with torch.inference_mode():
         pfnet_pred = pfnet_pred[0].detach().to(device).clone()
@@ -368,13 +427,12 @@ def run_empirical_bayesian(refine_steps, refine_cen_sigma, refine_env_sigma, pfn
             cen_sigma=refine_cen_sigma,
             env_sigma=refine_env_sigma,
             device=device,
-            #centroid_model=centroid_model,
+            # centroid_model=centroid_model,
             centroid_model=True,
             mask=seq_mask,
         )
 
         feather_model._current_batch = feather_input_batch
-
 
         kernel = FeatherMHKernel(
             potential_fn=feather_model.potential_fn,
@@ -390,13 +448,17 @@ def run_empirical_bayesian(refine_steps, refine_cen_sigma, refine_env_sigma, pfn
             grid_range=(-15.0, max(feather_model.get_log_kch())),
             feather_model=feather_model,
         )
-        
+
         # single_pos = (feather_input_batch[1]['resolution_grouping'][:, :, 2:4] == 0).all(dim=-1)[0]
 
-        kernel.initialize({"log_kex": pfnet_pred.detach().to(device).clone(),
-                           "mask": seq_mask,
-                           "log_kch": feather_model.get_log_kch(),
-                           "sampling_mask": sampling_mask})
+        kernel.initialize(
+            {
+                "log_kex": pfnet_pred.detach().to(device).clone(),
+                "mask": seq_mask,
+                "log_kch": feather_model.get_log_kch(),
+                "sampling_mask": sampling_mask,
+            }
+        )
 
         mcmc = MCMC(
             kernel,
@@ -433,7 +495,6 @@ def split_batch(batch, chunk_size, chunk_padding):
 
     chunked_batches = []
     for chunk_idx, chunk in enumerate(chunks):
-
         tp_idx = (start_pos >= chunk[0] - chunk_padding) & (end_pos <= chunk[1] + chunk_padding)
         peptide_data_chunk = {k: v[tp_idx].unsqueeze(0) for k, v in peptide_data.items()}
 
@@ -443,7 +504,7 @@ def split_batch(batch, chunk_size, chunk_padding):
         residue_data_chunk = {
             "resolution_grouping": residue_data["resolution_grouping"][:, res_start_idx:res_end_idx],
             "proline_mask": residue_data["proline_mask"][:, res_start_idx:res_end_idx],
-            "log_kch": residue_data['log_kch'][:, res_start_idx:res_end_idx],
+            "log_kch": residue_data["log_kch"][:, res_start_idx:res_end_idx],
             "resolution_limits": residue_data["resolution_limits"][:, res_start_idx:res_end_idx],
         }
 
@@ -454,7 +515,7 @@ def split_batch(batch, chunk_size, chunk_padding):
         if chunk_idx != 0:
             peptide_data_chunk["start_pos"] = peptide_data_chunk["start_pos"] - (chunk[0] - chunk_padding) + 1
             peptide_data_chunk["end_pos"] = peptide_data_chunk["end_pos"] - (chunk[0] - chunk_padding) + 1
-            
+
         if not tp_idx.any():
             chunked_batches.append([[], residue_data_chunk, global_vars_chunk, log_kex_chunk])
         else:
@@ -464,7 +525,6 @@ def split_batch(batch, chunk_size, chunk_padding):
 
 
 def forward_chunked_batches(model, x, chunk_size=250, chunk_padding=50, centroid_model=False, if_sort_log_kex=False):
-
     batch = [deepcopy(i) for i in x]
     chunks, chunked_batches = split_batch(batch, chunk_size=chunk_size, chunk_padding=chunk_padding)
     protein_length = int(batch[2][0][0])
@@ -473,14 +533,13 @@ def forward_chunked_batches(model, x, chunk_size=250, chunk_padding=50, centroid
     pred_log_kex_confidence = []
 
     for chunk_idx, chunk in enumerate(chunks):
-        
         if chunked_batches[chunk_idx][0] != []:
-            #pred_log_kex_chunk, pred_log_kex_confidence_chunk, _, _, _, _ = model.forward(chunked_batches[chunk_idx])
+            # pred_log_kex_chunk, pred_log_kex_confidence_chunk, _, _, _, _ = model.forward(chunked_batches[chunk_idx])
             all_cycle_predictions, _, _, _, _ = model.forward(chunked_batches[chunk_idx])
             pred_log_kex_chunk, pred_log_kex_confidence_chunk = all_cycle_predictions[-1]
         else:
-            pred_log_kex_chunk = torch.full((1, chunk_size+chunk_padding*2), -100.0)
-            pred_log_kex_confidence_chunk = torch.full((1, chunk_size+chunk_padding*2), -100.0) 
+            pred_log_kex_chunk = torch.full((1, chunk_size + chunk_padding * 2), -100.0)
+            pred_log_kex_confidence_chunk = torch.full((1, chunk_size + chunk_padding * 2), -100.0)
 
         if chunk_idx == 0:
             start_idx = 0
@@ -507,9 +566,9 @@ def forward_chunked_batches(model, x, chunk_size=250, chunk_padding=50, centroid
     start_pos = peptide_data["start_pos"]
     end_pos = peptide_data["end_pos"]
     time_points = peptide_data["time_point"]
-    back_ex = 1-peptide_data["effective_deut_rent"]
+    back_ex = 1 - peptide_data["effective_deut_rent"]
     saturation = global_vars[:, -1]
-    log_kch = residue_data['log_kch'].unsqueeze(-1)
+    # log_kch = residue_data["log_kch"].unsqueeze(-1)
     if not centroid_model:
         obs_envelope = peptide_data["probabilities"]
         obs_envelope_t0 = peptide_data["t0_isotope"]
@@ -544,7 +603,7 @@ def forward_chunked_batches(model, x, chunk_size=250, chunk_padding=50, centroid
     log_kex[mask] = -100
     pred_log_kex[mask] = -100
     pred_log_kex_confidence[mask] = -100
-    
+
     if not centroid_model:
         return pred_log_kex, pred_log_kex_confidence, log_kex, pred_envelope, obs_envelope, seq_mask, envelope_mask
     else:
@@ -556,13 +615,12 @@ class PFNetAnalysis(Analysis):
         super().__init__(states, temperature, pH, **kwargs)
 
     def clustering_results(self):
-
         results = Results(self)
 
         for k, v in self.maximum_resolution_limits.items():
             try:
                 mini_pep = results.get_mini_pep(v[0], v[1])
-            except:
+            except Exception:
                 mini_pep = MiniPep(v[0], v[1])
                 results.add_mini_pep(mini_pep)
 
@@ -580,7 +638,6 @@ class PFNetAnalysis(Analysis):
         #         res.SE_within_clusters_logP = res.mini_pep.SE_within_clusters_log_kex
 
     def _clustering_a_mini_pep(self, k, v0, v1):
-
         # v0 and v1 are 1-based
         # Apply remove_outliers to each column and collect results
         # cleaned_data = [remove_outliers(self.bayesian_hdx_df[col]) for col in self.bayesian_hdx_df.iloc[:,v0-1:v1].columns]
@@ -601,21 +658,23 @@ class PFNetAnalysis(Analysis):
 
         pool_values = np.concatenate(cleaned_data).flatten()
         pool_values = pool_values[~np.isnan(pool_values)]
-        
+
         # # rm data larger than log_kch， kex >= kch, -kex <= -kch
         # mini_pep_log_kch = [res.log_k_init*-1 for res in mini_pep.residues]
         # pool_values = pool_values[pool_values <= min(mini_pep_log_kch)]
-        
+
         if len(pool_values) != 0:
-            k_cluster = KMeans(n_clusters=num_clusters, random_state=0, init=initial_centers, n_init="auto").fit(pool_values.reshape(-1, 1))
-            #sorted_indices = np.argsort(k_cluster.cluster_centers_.flatten())
+            k_cluster = KMeans(n_clusters=num_clusters, random_state=0, init=initial_centers, n_init="auto").fit(
+                pool_values.reshape(-1, 1)
+            )
+            # sorted_indices = np.argsort(k_cluster.cluster_centers_.flatten())
 
             std_within_cluster = np.zeros(num_clusters)
             data_within_cluster = np.zeros(num_clusters, dtype=object)
             for i in range(num_clusters):
                 cluster_mask = k_cluster.labels_ == i
                 cluster_points = pool_values[cluster_mask]
-                center = k_cluster.cluster_centers_[i]
+                # center = k_cluster.cluster_centers_[i]
                 std_within_cluster[i] = np.std(cluster_points)
                 data_within_cluster[i] = cluster_points
 
@@ -627,7 +686,6 @@ class PFNetAnalysis(Analysis):
             data_within_cluster = data_within_cluster
 
             if num_Ps > 0:
-
                 for seq_i, seq in enumerate(self.protein_sequence[v0 - 1 : v1]):
                     if seq == "P":
                         cluster_centers = np.insert(cluster_centers, seq_i, np.inf)

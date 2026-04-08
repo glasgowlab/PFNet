@@ -1,15 +1,15 @@
-import torch
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import glob
 import os
 import tempfile
-import glob
-import urllib.request
 import traceback
+import urllib.request
 
-from pigeon_feather.analysis import get_res_avg_logP, get_res_avg_log_kex
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import torch
+from pigeon_feather.analysis import get_res_avg_log_kex, get_res_avg_logP
 from pigeon_feather.tools import calculate_coverages, group_by_attributes
 
 
@@ -368,8 +368,8 @@ def get_log_kex_plot(ana_objs, output_dir):
     for ii in range(0, seq_len, spacing):
         ax.text(ii, seq_pos, ana_objs[first_key].protein_sequence[ii], ha="center", va="center", fontsize=22)
 
-    from matplotlib.colors import Normalize
     from matplotlib import cm
+    from matplotlib.colors import Normalize
 
     coverage_max = np.nanmax(ana_objs[first_key].coverage)
     norm = Normalize(vmin=0, vmax=coverage_max)
@@ -402,9 +402,9 @@ def get_log_kex_plot(ana_objs, output_dir):
 def create_heatmap_compare(compare, colorbar_max, colormap="RdBu"):
     """Create heatmap for comparing two states."""
     import matplotlib.colors as col
-    from matplotlib.patches import Rectangle
-    from matplotlib import cm
     import matplotlib.pyplot as plt
+    from matplotlib import cm
+    from matplotlib.patches import Rectangle
 
     if not compare.peptide_compares or len(compare.peptide_compares) == 0:
         fig, ax = plt.subplots(figsize=(20, 10))
@@ -488,9 +488,9 @@ def create_heatmap_compare(compare, colorbar_max, colormap="RdBu"):
 def create_heatmap_single_state(hdxms_datas, colorbar_max, colormap="Greens"):
     """Create heatmap for single state."""
     import matplotlib.colors as col
-    from matplotlib.patches import Rectangle
     import matplotlib.patches as patches
     import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
 
     state_name = list(set([state.state_name for data in hdxms_datas for state in data.states]))
     if len(state_name) > 1:

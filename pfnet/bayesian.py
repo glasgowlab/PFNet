@@ -1,10 +1,11 @@
+import numpy as np
 import pyro
 import pyro.distributions as dist
 import pyro.poutine as poutine
 import torch
-from pyro.nn import PyroModule
 from pyro.infer.mcmc.mcmc_kernel import MCMCKernel
-import numpy as np
+from pyro.nn import PyroModule
+
 from pfnet.utilts import get_calculated_isotope_envelope, get_calculated_num_d
 
 

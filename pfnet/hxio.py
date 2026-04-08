@@ -1,8 +1,9 @@
-from pigeon_feather.data import HDXMSData, Peptide, ProteinState, Timepoint
-from pigeon_feather.tools import custom_pad, _add_max_d_to_pep
-from pfnet.data import get_resolution_grouping
 import numpy as np
 import torch
+from pigeon_feather.data import HDXMSData, Peptide, ProteinState, Timepoint
+from pigeon_feather.tools import _add_max_d_to_pep, custom_pad
+
+from pfnet.data import get_resolution_grouping
 
 
 def hxms_data_to_grouped_dict(hxms_data):

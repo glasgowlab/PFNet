@@ -1,17 +1,18 @@
 import argparse
-import os
 import glob
+import os
+
+from pigeon_feather.hxio import load_HXMS_file
 
 from pfnet.run_inference import predict
 from pfnet.utilts import (
-    get_log_kex_plot,
-    get_heatmap,
     get_csv_results,
-    make_BFactorPlot,
+    get_heatmap,
+    get_log_kex_plot,
     get_summary,
     load_pdb_data,
+    make_BFactorPlot,
 )
-from pigeon_feather.hxio import load_HXMS_file
 
 
 def parse_args():

@@ -1,21 +1,23 @@
-import numpy as np
-import random
-import torch
-from torch.utils.data import Dataset
-from torch.nn.utils.rnn import pad_sequence
-from pigeon_feather.data import SimulatedData, HDXMSData, ProteinState, Peptide, Timepoint
-from pigeon_feather.tools import custom_pad, _add_max_d_to_pep, event_probabilities, normlize
-from pigeon_feather.spectra import get_theoretical_isotope_distribution
-import pyopenms as oms
-import os
 import glob
+import os
+import random
 import signal
-from contextlib import contextmanager
-from pfnet.model import AminoAcidEncoder
-from scipy.optimize import brentq
-from hdxrate import k_int_from_sequence
 from collections import defaultdict
+from contextlib import contextmanager
 from functools import lru_cache
+
+import numpy as np
+import pyopenms as oms
+import torch
+from hdxrate import k_int_from_sequence
+from pigeon_feather.data import HDXMSData, Peptide, ProteinState, SimulatedData, Timepoint
+from pigeon_feather.spectra import get_theoretical_isotope_distribution
+from pigeon_feather.tools import _add_max_d_to_pep, custom_pad, event_probabilities, normlize
+from scipy.optimize import brentq
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import Dataset
+
+from pfnet.model import AminoAcidEncoder
 
 
 class HDXDataset(Dataset):

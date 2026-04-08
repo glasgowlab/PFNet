@@ -6,7 +6,7 @@ from lightning.pytorch.loggers import WandbLogger
 from torch.utils.data import DataLoader
 
 from pfnet.data import HDXDataset, OnlineHDXDataset, custom_collate_fn
-from pfnet.model import HDXModel
+from pfnet.model import PFNet
 
 if __name__ == "__main__":
     import time
@@ -26,12 +26,12 @@ if __name__ == "__main__":
     }
 
     if config["checkpoint_path"] is not None:
-        hdx_model = HDXModel.load_from_checkpoint(
+        hdx_model = PFNet.load_from_checkpoint(
             checkpoint_path=config["checkpoint_path"], strict=False, weights_only=True
         )
         hdx_model.learning_rate = config["learning_rate"]
     else:
-        hdx_model = HDXModel(learning_rate=config["learning_rate"])
+        hdx_model = PFNet(learning_rate=config["learning_rate"])
 
     hdx_model.to(device="cuda")
     # hdx_model = torch.compile(hdx_model)

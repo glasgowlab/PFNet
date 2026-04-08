@@ -1,14 +1,15 @@
+import math
 import os
 import re
-import math
-import torch
-import matplotlib.pyplot as plt
-from matplotlib.ticker import LogLocator
-from pigeon_feather.plot import UptakePlot
-from pigeon_feather.analysis import get_res_avg_logP
-import numpy as np
-import MDAnalysis
 import warnings
+
+import matplotlib.pyplot as plt
+import MDAnalysis
+import numpy as np
+import torch
+from matplotlib.ticker import LogLocator
+from pigeon_feather.analysis import get_res_avg_logP
+from pigeon_feather.plot import UptakePlot
 
 
 def pfnet_to_hdxmsdata(
@@ -420,7 +421,7 @@ def get_index_offset(
     pdb_file,
 ):
     """not required to have exact sequence match"""
-    from pigeon_feather.tools import pdb2seq, find_peptide
+    from pigeon_feather.tools import find_peptide, pdb2seq
 
     u = MDAnalysis.Universe(pdb_file)
     protein = u.select_atoms("protein")

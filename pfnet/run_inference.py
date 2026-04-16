@@ -213,11 +213,15 @@ def _load_data(input, centroid_model):
         for state in hxms_data.states:
             state.state_name = "Expt."
         all_peptides = [peptide for state in hxms_data.states for peptide in state.peptides]
+        all_inf_tps = [tp for peptide in all_peptides for tp in peptide.timepoints if tp.deut_time == np.inf]
 
         # back exchange estimation
-        from pigeon_feather.tools import backexchange_correction
+        if len(all_inf_tps) == 0:
+            print("Warning: No inf timepoints found, using theoretical max_d instead (not recommended).")
+        else:
+            from pigeon_feather.tools import backexchange_correction
 
-        backexchange_correction([hxms_data])
+            backexchange_correction([hxms_data])
 
         skip_peptides = []
         for peptide in all_peptides:

@@ -187,7 +187,7 @@ def plot_uptake_curves(hdxms_data_list, protein_name, outdir, time_window=None, 
         os.makedirs(outdir)
 
     def idf_to_pep(idf):
-        return [pep for pep in all_peps if pep.identifier == idf and pep.protein_state.state_name == "Expt."][0]
+        return [pep for pep in all_peps if pep.identifier == idf and pep.protein_state.state_name == "Expt."]
 
     # Plot settings
     num_subplots_per_figure = 300
@@ -216,12 +216,23 @@ def plot_uptake_curves(hdxms_data_list, protein_name, outdir, time_window=None, 
             else:
                 ax = axs[i // 5, i % 5]
 
-            pep = idf_to_pep(idf)
+            peps = idf_to_pep(idf)
+            pep = peps[0]
+
+            max_d_values = [tp.num_d for pep in peps for tp in pep.timepoints if tp.deut_time == np.inf]
+            mean_max_d = np.mean(max_d_values)
+            std_max_d = np.std(max_d_values)
+            # print(idf, mean_max_d, std_max_d, len(max_d_values))
+
             try:
                 if hasattr(pep, "is_max_d_estimated") and pep.is_max_d_estimated:
-                    ax.axhline(y=pep.max_d, color="lightcoral", linestyle=":", linewidth=5)
+                    ax.axhline(y=mean_max_d, color="lightcoral", linestyle=":", linewidth=5)
+                    if len(max_d_values) > 1:
+                        ax.axhspan(mean_max_d - std_max_d, mean_max_d + std_max_d, color="lightgray", alpha=0.2)
                 else:
-                    ax.axhline(y=pep.max_d, color="lightgray", linestyle="--", linewidth=5)
+                    ax.axhline(y=mean_max_d, color="lightgray", linestyle="--", linewidth=5)
+                    if len(max_d_values) > 1:
+                        ax.axhspan(mean_max_d - std_max_d, mean_max_d + std_max_d, color="lightgray", alpha=0.2)
 
                 UptakePlot(
                     hdxms_data_list,

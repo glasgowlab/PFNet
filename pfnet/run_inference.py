@@ -203,16 +203,12 @@ def _load_model(loaded_model, centroid_model):
     return model
 
 
-def _load_data(input, centroid_model):
-    if isinstance(input, dict):
-        dataset = [input]
-        hxms_data = datadict_to_hdxmsdata(dataset[0], protein_name="Expt.", centroid_data=centroid_model)
-    elif input.endswith(".hxms"):
-        hxms_data = load_HXMS_file(input, n_fastamides=1)
-        hxms_data.protein_name = "Expt."
-        for state in hxms_data.states:
+def _load_data(input, centroid_model, flatten_replicates=True):
+    def _process_hxms_data(input_data):
+        input_data.protein_name = "Expt."
+        for state in input_data.states:
             state.state_name = "Expt."
-        all_peptides = [peptide for state in hxms_data.states for peptide in state.peptides]
+        all_peptides = [peptide for state in input_data.states for peptide in state.peptides]
         all_inf_tps = [tp for peptide in all_peptides for tp in peptide.timepoints if tp.deut_time == np.inf]
 
         # back exchange estimation
@@ -221,7 +217,7 @@ def _load_data(input, centroid_model):
         else:
             from pigeon_feather.tools import backexchange_correction
 
-            backexchange_correction([hxms_data])
+            backexchange_correction([input_data])
 
         skip_peptides = []
         for peptide in all_peptides:
@@ -236,8 +232,24 @@ def _load_data(input, centroid_model):
                 print("max_d:", peptide.max_d, "theo_max_d:", peptide.theo_max_d)
                 skip_peptides.append(peptide.identifier)
         print(f"Skipping {len(skip_peptides)} peptides")
-        hxms_data.states[0].peptides = [pep for pep in all_peptides if pep.identifier not in skip_peptides]
-
+        input_data.states[0].peptides = [pep for pep in all_peptides if pep.identifier not in skip_peptides]
+    
+    if isinstance(input, dict):
+        dataset = [input]
+        hxms_data = datadict_to_hdxmsdata(dataset[0], protein_name="Expt.", centroid_data=centroid_model)
+    elif input.endswith(".hxms"):
+        hxms_data_list = load_HXMS_file(input, n_fastamides=1, flatten_replicates=flatten_replicates)
+        for i, hxms_data_i in enumerate(hxms_data_list):
+            print('Processing replicate:', i)
+            _process_hxms_data(hxms_data_i)
+        all_peptides = [peptide for data in hxms_data_list for peptide in data.states[0].peptides]
+        # merge all peptides 
+        hxms_data = deepcopy(hxms_data_list[0])
+        hxms_data.states[0].peptides = all_peptides
+        for pep in hxms_data.states[0].peptides:
+            pep.protein_state = hxms_data.states[0]
+            pep.hxms_data = hxms_data
+        
         dataset = HDXDataset(hxms_data_to_grouped_dict(hxms_data), centroid_data=centroid_model)
     elif input.endswith(".pt"):
         dataset = HDXDataset(input, centroid_data=centroid_model)

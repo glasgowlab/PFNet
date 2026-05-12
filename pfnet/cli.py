@@ -88,7 +88,7 @@ def main():
 
     print(f"Processing {len(input_files)} input file(s): {input_files}")
 
-    hdxms_data_list = [load_HXMS_file(input_file) for input_file in input_files]
+    hdxms_data_list = [load_HXMS_file(input_file, n_fastamides=1, flatten_replicates=True)[0] for input_file in input_files]
     global state_names
     state_names = [state.state_name for data in hdxms_data_list for state in data.states]
     print(f"State names: {state_names}")

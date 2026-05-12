@@ -145,6 +145,6 @@ def datadict_to_hdxmsdata(
 
         if timepoint.deut_time == 0.0:
             # _add_max_d_to_pep(peptide, max_d=(1 - float(back_ex)) * peptide.theo_max_d, force=True)
-            _add_max_d_to_pep(peptide, max_d=max_d, force=True)
+            _add_max_d_to_pep(peptide, max_d=max_d, force=False)
 
     return hdxms_data

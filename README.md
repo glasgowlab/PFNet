@@ -224,4 +224,4 @@ PFNet builds upon the [PIGEON-FEATHER](https://github.com/glasgowlab/PIGEON-FEAT
 
 ## Discord
 
-Chat with other users on our [Discord channel](https://discord.com/invite/3EwY2rWF).
+Chat with other users on our [Discord channel](https://discord.gg/jR32yNpTX6).
